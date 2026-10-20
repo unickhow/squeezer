@@ -13,8 +13,10 @@ import {
   getRevealableJobIds,
   getStatusAnnouncement,
   mergeAdmissionJobs,
+  filterQueueJobs,
+  getEffectiveOptions,
 } from "../src/lib/interactions.ts";
-import type { CompressionJob } from "../src/types.ts";
+import type { CompressionJob, CompressionOptions } from "../src/types.ts";
 
 function job(overrides: Partial<CompressionJob> = {}): CompressionJob {
   return {
@@ -22,6 +24,27 @@ function job(overrides: Partial<CompressionJob> = {}): CompressionJob {
     width: 10, height: 10, status: "queued", progress: 0, originalBytes: 100, ...overrides,
   };
 }
+
+function options(overrides: Partial<CompressionOptions> = {}): CompressionOptions {
+  return { mode: "balanced", outputFormat: "original", preserveMetadata: true, minSavingsPercent: 0, pngLossy: false, ...overrides };
+}
+
+test("queue search filters names and parent folders without mutating jobs", () => {
+  const jobs = [job({ id: "1", inputPath: "/Users/Me/Coast/Coastline.jpg", fileName: "Coastline.jpg" }), job({ id: "2", inputPath: "/Users/Me/Studio/portrait.png", fileName: "portrait.png" })];
+  const before = structuredClone(jobs);
+  assert.deepEqual(filterQueueJobs(jobs, ""), jobs);
+  assert.deepEqual(filterQueueJobs(jobs, "COAST"), [jobs[0]]);
+  assert.deepEqual(filterQueueJobs(jobs, "studio"), [jobs[1]]);
+  assert.deepEqual(filterQueueJobs(jobs, "missing"), []);
+  assert.deepEqual(jobs, before);
+});
+
+test("effective options use a per-file override or batch default", () => {
+  const defaults = options();
+  const override = options({ mode: "small", pngLossy: true });
+  assert.equal(getEffectiveOptions("one", defaults, { one: override }), override);
+  assert.equal(getEffectiveOptions("two", defaults, { one: override }), defaults);
+});
 
 test("primary action describes count and busy state", () => {
   assert.deepEqual(getPrimaryActionState(1, false, false), { label: "壓縮 1 張", disabled: false });

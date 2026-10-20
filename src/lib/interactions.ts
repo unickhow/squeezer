@@ -1,4 +1,4 @@
-import type { CompressionJob, CompressionMode } from "../types";
+import type { CompressionJob, CompressionMode, CompressionOptions } from "../types";
 
 const modes: CompressionMode[] = ["lossless", "quality", "balanced", "small"];
 
@@ -37,6 +37,17 @@ export function getResultCounts(jobs: CompressionJob[]): { completed: number; sk
 
 function parentPath(path: string): string {
   return path.split(/[\\/]/).slice(0, -1).join("/");
+}
+
+export function filterQueueJobs(jobs: CompressionJob[], query: string): CompressionJob[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return jobs;
+  return jobs.filter((job) => job.fileName.toLocaleLowerCase().includes(normalizedQuery)
+    || parentPath(job.inputPath).toLocaleLowerCase().includes(normalizedQuery));
+}
+
+export function getEffectiveOptions(jobId: string, defaults: CompressionOptions, overrides: Record<string, CompressionOptions>): CompressionOptions {
+  return overrides[jobId] ?? defaults;
 }
 
 export function getRevealableJobIds(jobs: CompressionJob[]): string[] {
