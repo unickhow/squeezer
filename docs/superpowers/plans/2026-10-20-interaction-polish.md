@@ -51,7 +51,7 @@ Animate the brand mark first, then settle the main content with a visible but re
 
 Extend the existing `prefers-reduced-motion` rule to neutralize launch and later motion tokens, with immediate state changes and intact focus indicators.
 
-- [ ] **Step 4: Inspect the CSS diff and run `npm run build`**
+- [ ] **Step 4: Inspect the CSS diff and run `pnpm build`**
 
 Expected: production build succeeds; opening the app does not wait for an animation before controls work.
 
@@ -80,7 +80,7 @@ git commit -m "feat: add restrained app entry motion"
 
 Test `getQueueArrivalDelay(0..3)` returns `0, 35, 70, 0`. Test `getAdmissionAnnouncement` for zero requested paths (`""`), duplicate-only (`"選取的檔案都已在清單中"`), added valid files (`"已加入 2 個檔案"`), and a mixed batch (`"已加入 1 個；1 個無法使用；1 個重複檔案略過"`). `returnedCount` includes each newly admitted row, including failed rows; `failedCount` is the failed subset, and duplicate count is `requestedCount - returnedCount`.
 
-- [ ] **Step 2: Run `npm test` and confirm the new helper tests fail**
+- [ ] **Step 2: Run `pnpm test` and confirm the new helper tests fail**
 
 Expected: failure because the arrival and batch-feedback helpers do not yet exist.
 
@@ -96,7 +96,7 @@ Track newly admitted IDs until their entry animation ends. Apply a delay of `bat
 
 Give drag-enter/drop/leave, thumbnail hover/focus, row actions, and the empty queue clear pressed/focus feedback. Keep the full drop area keyboard-operable and do not place a loading overlay over the queue.
 
-- [ ] **Step 6: Run `npm test` and `npm run build`**
+- [ ] **Step 6: Run `pnpm test` and `pnpm build`**
 
 Expected: helper tests pass and TypeScript/Vite production build succeeds.
 
@@ -137,7 +137,7 @@ On start, acknowledge the exact queued count and lock repeat submission while th
 
 On terminal events, update only that row and measured totals. Keep completed, skipped, failed, and cancelled outcomes visually and textually distinct. Do not add success styling when the batch saved no space.
 
-- [ ] **Step 5: Run `npm test` and `npm run build`**
+- [ ] **Step 5: Run `pnpm test` and `pnpm build`**
 
 Expected: existing interaction regressions pass and TypeScript/Vite production build succeeds.
 
@@ -167,7 +167,7 @@ git commit -m "feat: clarify compression and result feedback"
 
 Test `getActionErrorMessage("preview", "photo.png", "decode error")` includes the filename, preview action, and detail; test the reveal variant names Finder and the file. Do not add a mock image or fake after result.
 
-- [ ] **Step 2: Run `npm test` and confirm new assertions fail**
+- [ ] **Step 2: Run `pnpm test` and confirm new assertions fail**
 
 Expected: failure only for newly specified helper behavior.
 
@@ -183,7 +183,7 @@ Use the view-transition duration from Task 1; close with Escape, close button, a
 
 Show preview and Finder errors without clearing jobs or covering the list. Successful transient acknowledgements may clear after a short interval; actionable errors stay visible until the next relevant action.
 
-- [ ] **Step 6: Run `npm test` and `npm run build`**
+- [ ] **Step 6: Run `pnpm test` and `pnpm build`**
 
 Expected: tests and production build succeed.
 
@@ -208,7 +208,7 @@ git commit -m "feat: polish preview and recovery feedback"
 
 - [ ] **Step 1: Run all project checks**
 
-Run `npm test && npm run build && cargo test --offline --manifest-path src-tauri/Cargo.toml && cargo check --offline --manifest-path src-tauri/Cargo.toml`.
+Run `pnpm test && pnpm build && cargo test --offline --manifest-path src-tauri/Cargo.toml && cargo check --offline --manifest-path src-tauri/Cargo.toml`.
 
 Expected: all tests, type checks, production build, and Rust check pass.
 

@@ -23,14 +23,15 @@ HDR and Dolby Vision, ProRes, spatial or multiview video, subtitles, chapter tra
 
 - macOS; tested on macOS 26 with Apple Silicon.
 - The app bundle is not signed or notarized in v1.0.0. macOS may warn when opening a locally built app.
-- Download links will be added after the GitHub repository is configured and release assets are published.
+- Download links will be added when release assets are published.
 
 ## Verification
 
+- `pnpm install --frozen-lockfile` passed with the committed pnpm lockfile.
+- `pnpm test` passed (16 frontend tests).
 - 35 Rust tests passed.
-- 16 frontend tests passed.
-- `npm run build` passed.
-- `npm run tauri build -- --bundles app` passed; the bundle includes the arm64 native video helper.
+- `pnpm build` passed.
+- `pnpm tauri build --bundles app` passed; the bundle includes the arm64 native video helper and the configured pnpm build hook.
 
 ## Known limitations
 

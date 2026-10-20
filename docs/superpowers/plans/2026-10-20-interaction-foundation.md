@@ -110,7 +110,7 @@ In `src/styles.css`, provide distinct focus and pressed styles for all interacti
 
 - [x] **Step 6: Run focused and full frontend checks**
 
-Run: `node --experimental-strip-types --test tests/interactions.test.ts` and `npm test`.
+Run: `node --experimental-strip-types --test tests/interactions.test.ts` and `pnpm test`.
 Expected: all interaction helper and existing frontend tests pass.
 
 ---
@@ -150,7 +150,7 @@ Render indeterminate progress with `role="progressbar"`, an accessible label con
 
 - [x] **Step 5: Run focused Rust and frontend tests**
 
-Run: `cargo test --offline --manifest-path src-tauri/Cargo.toml commands::tests::progress_is_only_reported_when_known` and `npm test`.
+Run: `cargo test --offline --manifest-path src-tauri/Cargo.toml commands::tests::progress_is_only_reported_when_known` and `pnpm test`.
 Expected: both commands pass.
 
 ---
@@ -177,7 +177,7 @@ Test that queued, failed, skipped, and cancelled jobs cannot be revealed; comple
 
 - [x] **Step 2: Run the focused tests and confirm they fail**
 
-Run: `cargo test --offline --manifest-path src-tauri/Cargo.toml commands::tests::reveal_outputs_require_completed_files` and `npm test`.
+Run: `cargo test --offline --manifest-path src-tauri/Cargo.toml commands::tests::reveal_outputs_require_completed_files` and `pnpm test`.
 Expected: the new Rust test fails before command implementation; the Node test fails before result-copy helper implementation.
 
 - [x] **Step 3: Implement the Rust reveal command and register it**
@@ -194,7 +194,7 @@ Use short opacity/scale transitions for the existing preview overlay and modal o
 
 - [x] **Step 6: Run focused Rust and frontend tests**
 
-Run: `cargo test --offline --manifest-path src-tauri/Cargo.toml commands::tests::reveal_outputs_require_completed_files` and `npm test`.
+Run: `cargo test --offline --manifest-path src-tauri/Cargo.toml commands::tests::reveal_outputs_require_completed_files` and `pnpm test`.
 Expected: all focused tests pass.
 
 ---
@@ -211,12 +211,12 @@ Expected: all Rust tests pass with no ignored failures.
 
 - [x] **Step 2: Run the frontend test and production build**
 
-Run: `npm test && npm run build`.
+Run: `pnpm test && pnpm build`.
 Expected: all Node tests pass and TypeScript/Vite production build succeeds.
 
 - [x] **Step 3: Run Rust type checking and Tauri app bundle build**
 
-Run: `cargo check --offline --manifest-path src-tauri/Cargo.toml` and `npm run tauri -- build --debug --bundles app`.
+Run: `cargo check --offline --manifest-path src-tauri/Cargo.toml` and `pnpm tauri build --debug --bundles app`.
 Expected: Rust check and debug `.app` bundle complete successfully.
 
 - [ ] **Step 4: Complete a manual interaction pass in the running app**

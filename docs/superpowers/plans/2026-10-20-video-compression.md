@@ -86,7 +86,7 @@ Expected: no whitespace errors.
 Run: `cargo test --manifest-path src-tauri/Cargo.toml admission`
 Expected: video/image routing, unsupported and malformed input, duplicate handling, and mixed-batch behavior pass.
 
-Run: `npm test`
+Run: `pnpm test`
 Expected: existing queue interaction tests pass with both media types represented.
 
 ### Task 3: Video analysis, thumbnails, and secure streaming preview
@@ -159,10 +159,10 @@ Expected: supported fixture encodes validate; cancellation leaves no temp file; 
 - [x] **Step 4: Generalize queue labels and feedback** — show video poster, duration, dimensions, size, state, actual savings, error, cancel, retry, and progress without changing image labels or controls.
 - [ ] **Step 5: Run frontend checks**
 
-Run: `npm test`
+Run: `pnpm test`
 Expected: all existing image interactions and new mixed-media settings tests pass.
 
-Run: `npm run build`
+Run: `pnpm build`
 Expected: TypeScript checks and Vite production build complete successfully.
 
 ### Task 6: Video comparison player and interaction polish
@@ -198,7 +198,7 @@ Manual verification:
 Run: `cargo test --manifest-path src-tauri/Cargo.toml`
 Expected: all Rust unit/integration tests pass.
 
-Run: `npm test && npm run build`
+Run: `pnpm test && pnpm build`
 Expected: all frontend tests, type checks, and production build pass.
 
 - [ ] **Step 2: Exercise the media matrix** — supported H.264/HEVC, silent/AAC, portrait, SD/HD/4K, long clip; malformed/renamed/unsupported/HDR/multitrack; duplicate and mixed image/video batch; cancel/retry; target-size hit/miss; collision and Finder reveal.

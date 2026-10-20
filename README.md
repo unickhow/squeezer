@@ -16,24 +16,24 @@ Squeezer is a local-first macOS app for compressing images and videos. Files are
 ## Requirements
 
 - macOS (tested on macOS 26, Apple Silicon).
-- For development: Xcode Command Line Tools, Rust, and Node.js 20.19 or newer.
+- For development: Xcode Command Line Tools, Rust, Node.js 20.19 or newer, and pnpm 10.27.0.
 
 ## Download and install
 
-GitHub release packages will be published under the repository's **Releases** page once repository publishing is configured. The v1.0.0 app bundle is not signed or notarized yet; macOS may show a security warning when opening a locally built copy.
+GitHub release packages will be published under the repository's **Releases** page when release assets are ready. The v1.0.0 app bundle is not signed or notarized yet; macOS may show a security warning when opening a locally built copy.
 
 ## Build from source
 
 ```sh
-npm install
-npm run tauri dev
+pnpm install --frozen-lockfile
+pnpm tauri dev
 ```
 
 Build a macOS app bundle (and DMG when configured by Tauri):
 
 ```sh
-npm run build
-npm run tauri build
+pnpm build
+pnpm tauri build
 ```
 
 ## Video support
@@ -52,8 +52,8 @@ HDR and Dolby Vision, ProRes, spatial or multiview video, subtitles, chapter tra
 ## Checks
 
 ```sh
-npm test
-npm run build
+pnpm test
+pnpm build
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 ```

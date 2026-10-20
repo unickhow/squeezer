@@ -43,7 +43,7 @@
 - [ ] **Step 1: Scaffold the minimal app and declare dependencies**
 - [ ] **Step 2: Build the frontend and compile the Rust/Tauri application**
 - [ ] **Step 3: Add Rust tests for same-path rejection and non-overwriting output naming**
-- [ ] **Step 4: Run `cargo test --manifest-path src-tauri/Cargo.toml` and `npm run build`**
+- [ ] **Step 4: Run `cargo test --manifest-path src-tauri/Cargo.toml` and `pnpm build`**
 
 ### Task 2: Rust Media Analysis and Safe Output Paths
 

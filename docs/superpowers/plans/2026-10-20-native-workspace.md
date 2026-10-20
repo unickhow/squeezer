@@ -98,7 +98,7 @@ At 800 × 600, collapse the inspector into a same-window panel or equivalent res
 
 - [ ] **Step 5: Run the frontend build**
 
-Run: `npm run build`
+Run: `pnpm build`
 
 Expected: TypeScript and Vite production build succeed.
 
@@ -148,7 +148,7 @@ Change `src/lib/tauri.ts` to send both defaults and overrides. When the global b
 
 - [ ] **Step 6: Run focused Rust tests and frontend checks**
 
-Run: `cargo test --offline --manifest-path src-tauri/Cargo.toml queued_job_ && npm test && npm run build`
+Run: `cargo test --offline --manifest-path src-tauri/Cargo.toml queued_job_ && pnpm test && pnpm build`
 
 Expected: option-resolution tests, existing frontend tests, and the frontend build pass.
 
@@ -240,7 +240,7 @@ Retain one 1–2 second brand-to-workspace entrance without delaying input. Ensu
 
 - [ ] **Step 6: Run frontend tests and build**
 
-Run: `npm test && npm run build`
+Run: `pnpm test && pnpm build`
 
 Expected: all frontend tests pass and the production build succeeds.
 
@@ -263,7 +263,7 @@ git commit -m "feat: polish native workspace interactions"
 
 - [ ] **Step 1: Run the complete automated checks**
 
-Run: `npm test && npm run build && cargo test --offline --manifest-path src-tauri/Cargo.toml && cargo check --offline --manifest-path src-tauri/Cargo.toml`
+Run: `pnpm test && pnpm build && cargo test --offline --manifest-path src-tauri/Cargo.toml && cargo check --offline --manifest-path src-tauri/Cargo.toml`
 
 Expected: all tests, frontend compilation, Rust tests, and Rust check pass.
 
