@@ -1,10 +1,10 @@
-# Squeeze — macOS 本地多媒體壓縮工具規格書
+# Squeezer — macOS 本地多媒體壓縮工具規格書
 
 > 版本：v0.1 草案｜日期：2026-10-20｜目標：個人使用、品質優先、易用、離線
 
 ## 1. 產品定位
 
-Squeeze（暫定名稱）是一款完全本地運作的 macOS 多媒體壓縮 App，透過成熟的圖片與影片編碼器，在視覺保真、容量與速度之間取得平衡。核心理念：**Drop files. Keep quality. Save space.**
+Squeezer 是一款完全本地運作的 macOS 多媒體壓縮 App，透過成熟的圖片與影片編碼器，在視覺保真、容量與速度之間取得平衡。核心理念：**Drop files. Keep quality. Save space.**
 
 ### 設計原則
 - Local-first：不需上傳雲端。
@@ -157,7 +157,7 @@ interface CompressionJob {
 ## 10. 專案結構
 
 ```text
-squeeze/
+squeezer/
 ├── src/
 │   ├── components/
 │   ├── features/

@@ -1,8 +1,8 @@
-# Squeeze Interaction Foundation Implementation Plan
+# Squeezer Interaction Foundation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Polish Squeeze’s existing image-compression flow with immediate, truthful, accessible interaction feedback while keeping the current one-screen batch workflow.
+**Goal:** Polish Squeezer’s existing image-compression flow with immediate, truthful, accessible interaction feedback while keeping the current one-screen batch workflow.
 
 **Architecture:** Keep the current React/Tauri structure and make focused updates to `App.tsx` and `styles.css`. Make file admission return visible pending jobs before sequential background analysis completes, add a small interaction-copy helper module with Node built-in tests, and add one Rust command that reveals completed job outputs in Finder by job IDs. Do not introduce a new UI framework, animation dependency, forced wizard, or image-workbench redesign in this phase.
 

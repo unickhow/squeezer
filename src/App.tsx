@@ -156,7 +156,7 @@ function App() {
   }
 
   return <main className="app-shell">
-    <header className="topbar"><a className="brand" href="#top" aria-label="Squeeze 首頁"><span className="brand-mark"><span /><span /><span /></span><span className="brand-name">squeeze<span className="brand-period">.</span></span></a><div className="topbar-meta"><span className="local-pill"><span className="local-dot" />100% 在你的 Mac 上處理</span></div></header>
+    <header className="topbar"><a className="brand" href="#top" aria-label="Squeezer 首頁"><span className="brand-mark"><span /><span /><span /></span><span className="brand-name">squeezer<span className="brand-period">.</span></span></a><div className="topbar-meta"><span className="local-pill"><span className="local-dot" />100% 在你的 Mac 上處理</span></div></header>
     <div className="workspace" id="top">
       <section className="intro"><div className="eyebrow"><span>IMAGE WORKFLOW</span><span className="eyebrow-line" /></div><div className="intro-row"><div><h1>Make room<br /><em>for what matters.</em></h1><p className="intro-copy">收小檔案，留下每個重要細節。<br />所有處理都在這台 Mac 上完成。</p></div><div className="intro-stamp"><ShieldCheck size={18} strokeWidth={1.5} /><span>原檔<br />完整保留</span></div></div></section>
       <button type="button" className={`dropzone ${dragging ? "is-dragging" : ""}`} onClick={() => void chooseFiles()} aria-label="選擇 JPEG 或 PNG 圖片">

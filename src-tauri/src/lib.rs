@@ -15,7 +15,7 @@ pub fn run() {
             commands::clear_jobs,
         ])
         .run(tauri::generate_context!())
-        .expect("failed to run Squeeze");
+        .expect("failed to run Squeezer");
 }
 
 #[cfg(test)]

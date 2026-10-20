@@ -1,12 +1,12 @@
 [package]
-name = "squeeze"
+name = "squeezer"
 version = "0.1.0"
 description = "Local-first media compression for macOS"
-authors = ["Squeeze"]
+authors = ["Squeezer"]
 edition = "2024"
 
 [lib]
-name = "squeeze_lib"
+name = "squeezer_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

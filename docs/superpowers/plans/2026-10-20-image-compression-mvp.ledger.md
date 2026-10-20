@@ -13,7 +13,7 @@
 - `cargo check --offline --manifest-path src-tauri/Cargo.toml`: passed.
 - `npm test`: 2 passed.
 - `npm run build`: passed.
-- `npm run tauri -- build --debug --bundles app`: passed; bundle at `src-tauri/target/debug/bundle/macos/Squeeze.app`.
+- `npm run tauri -- build --debug --bundles app`: passed; bundle at `src-tauri/target/debug/bundle/macos/Squeezer.app`.
 - LaunchServices could not open the app bundle in this environment (`kLSNoExecutableErr`); direct app launch hit a macOS AppKit/LaunchServices abort. Bundle creation is verified, interactive launch is not.
 
 ## Remaining verification gap
