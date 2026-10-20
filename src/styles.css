@@ -109,11 +109,11 @@ button { font: inherit; }
 
 /* A brief, visible brand cue leads into the immediately usable workflow. */
 .topbar { animation: none; }
-.brand-mark { animation: brand-mark-arrive 280ms var(--motion-ease) both; }
-.brand-name { animation: brand-name-arrive 260ms var(--motion-ease) 35ms both; }
-.topbar-meta { animation: brand-name-arrive 240ms var(--motion-ease) 55ms both; }
-.workspace { animation: app-entry-settle 280ms var(--motion-ease) 25ms both; }
-.bottom-bar { animation: app-entry-settle 260ms var(--motion-ease) 60ms both; }
+.brand-mark { animation: brand-mark-arrive 1.1s var(--motion-ease) both; }
+.brand-name { animation: brand-name-arrive .8s var(--motion-ease) 120ms both; }
+.topbar-meta { animation: brand-name-arrive .8s var(--motion-ease) 320ms both; }
+.workspace { animation: app-entry-settle 1.15s var(--motion-ease) 150ms both; }
+.bottom-bar { animation: app-entry-settle .9s var(--motion-ease) 600ms both; }
 .dropzone,.button,.mode-card,.png-lossy-toggle { transition-duration: var(--motion-micro); transition-timing-function: var(--motion-ease); }
 .preview-overlay { animation-duration: var(--motion-view); animation-timing-function: var(--motion-ease); }
 .preview-dialog { animation-duration: var(--motion-view); animation-timing-function: var(--motion-ease); }
