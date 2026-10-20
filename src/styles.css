@@ -119,3 +119,20 @@ button { font: inherit; }
   :root { --motion-micro: 0ms; --motion-view: 0ms; --motion-stagger-step: 0ms; }
   .topbar,.workspace,.bottom-bar { animation: none !important; }
 }
+.job-row:nth-child(2),.job-row:nth-child(3),.job-row:nth-child(4) { animation: none; }
+.job-row.arriving { animation: row-arrive 180ms var(--arrival-delay, 0ms) var(--motion-ease) both; }
+.thumbnail-button { transition: transform var(--motion-micro) var(--motion-ease), border-color var(--motion-micro) var(--motion-ease), box-shadow var(--motion-micro) var(--motion-ease); }
+.thumbnail-button:hover { transform: scale(1.05); border-color: #b66a49; box-shadow: 0 2px 8px #27251f1a; }
+.thumbnail-button:active { transform: scale(.97); }
+.row-preview,.row-remove { transition: color var(--motion-micro) var(--motion-ease), background var(--motion-micro) var(--motion-ease), transform var(--motion-micro) var(--motion-ease); }
+.row-preview:active,.row-remove:active { transform: scale(.92); }
+.empty-queue { transition: border-color var(--motion-micro) var(--motion-ease), background var(--motion-micro) var(--motion-ease); }
+.job-status.queued { color: #77766e; }
+.job-status.analyzing { color: #876945; }
+.job-status.compressing { color: #9a573a; }
+.job-status.validating { color: #5d7181; }
+.job-status.skipped { color: #77715e; }
+.job-status.cancelled { color: #696a70; }
+.job-status.cancelled svg,.job-status.skipped svg { flex: 0 0 auto; }
+.job-row:has(.job-status.failed) { background: #fff8f5; }
+.job-row:has(.job-status.cancelled) { background: #f6f6f5; }

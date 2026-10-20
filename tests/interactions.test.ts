@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   getJobActionLabel,
+  getQueueArrivalDelay,
+  getAdmissionAnnouncement,
   getNextCompressionMode,
   getPrimaryActionState,
   getResultActionLabel,
@@ -71,4 +73,15 @@ test("admission response keeps a newer analysis event that arrived first", () =>
   const merged = mergeAdmissionJobs([], [admitted], new Map([[updated.id, updated]]));
   assert.equal(merged[0]?.status, "queued");
   assert.equal(merged[0]?.width, 32);
+});
+
+test("queue arrival is staggered only across the first three rows", () => {
+  assert.deepEqual([0, 1, 2, 3].map(getQueueArrivalDelay), [0, 35, 70, 0]);
+});
+
+test("admission announcement summarizes added, invalid and duplicate files", () => {
+  assert.equal(getAdmissionAnnouncement(0, 0, 0), "");
+  assert.equal(getAdmissionAnnouncement(3, 0, 0), "選取的檔案都已在清單中");
+  assert.equal(getAdmissionAnnouncement(2, 2, 0), "已加入 2 個檔案");
+  assert.equal(getAdmissionAnnouncement(3, 2, 1), "已加入 1 個；1 個無法使用；1 個重複檔案略過");
 });

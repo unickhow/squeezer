@@ -55,3 +55,21 @@ export function mergeAdmissionJobs(current: CompressionJob[], admitted: Compress
   const knownPaths = new Set(current.map((job) => job.inputPath));
   return [...current, ...admitted.filter((job) => !knownPaths.has(job.inputPath)).map((job) => latestEvents.get(job.id) ?? job)];
 }
+
+export function getQueueArrivalDelay(batchIndex: number): number {
+  return batchIndex >= 0 && batchIndex < 3 ? batchIndex * 35 : 0;
+}
+
+export function getAdmissionAnnouncement(requestedCount: number, returnedCount: number, failedCount: number): string {
+  if (requestedCount === 0) return "";
+  if (returnedCount === 0) return "選取的檔案都已在清單中";
+  const addedCount = Math.max(0, returnedCount - failedCount);
+  const duplicateCount = Math.max(0, requestedCount - returnedCount);
+  if (failedCount === 0 && duplicateCount === 0) return `已加入 ${addedCount} 個檔案`;
+  const parts = [
+    addedCount > 0 ? `已加入 ${addedCount} 個` : "",
+    failedCount > 0 ? `${failedCount} 個無法使用` : "",
+    duplicateCount > 0 ? `${duplicateCount} 個重複檔案略過` : "",
+  ].filter(Boolean);
+  return parts.join("；");
+}

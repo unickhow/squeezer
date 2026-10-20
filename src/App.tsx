@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowDownToLine, ArrowUpRight, Check, CircleAlert, Eye, FileImage, FolderOpen, Image as ImageIcon, LoaderCircle, Plus, ShieldCheck, Sparkles, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpRight, Ban, Check, CircleAlert, Eye, FileImage, FolderOpen, Image as ImageIcon, LoaderCircle, Minus, Plus, ShieldCheck, Sparkles, X } from "lucide-react";
 import { addFiles, cancelJob, clearJobs, removeJob as removeQueuedJob, revealOutputs, startJobs, subscribeJobs } from "./lib/tauri";
 import { calculateSavings, formatBytes } from "./lib/format";
-import { getJobActionLabel, getNextCompressionMode, getPrimaryActionState, getResultActionLabel, getResultCounts, getRevealableJobIds, getStatusAnnouncement, mergeAdmissionJobs } from "./lib/interactions";
+import { getAdmissionAnnouncement, getJobActionLabel, getNextCompressionMode, getPrimaryActionState, getQueueArrivalDelay, getResultActionLabel, getResultCounts, getRevealableJobIds, getStatusAnnouncement, mergeAdmissionJobs } from "./lib/interactions";
 import type { CompressionJob, CompressionMode, CompressionOptions, JobStatus } from "./types";
 
 const modes: { id: CompressionMode; title: string; detail: string; icon: string }[] = [
@@ -26,6 +26,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [announcement, setAnnouncement] = useState("");
+  const [arrivalDelays, setArrivalDelays] = useState<Map<string, number>>(() => new Map());
   const [cancelRequested, setCancelRequested] = useState<Set<string>>(() => new Set());
   const [preview, setPreview] = useState<{ job: CompressionJob; before: string; after?: string } | null>(null);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
@@ -53,7 +54,12 @@ function App() {
     try {
       const added = await addFiles(paths);
       setJobs((current) => mergeAdmissionJobs(current, added, latestJobs.current));
-      if (added.length) setAnnouncement("檔案已加入清單；重複檔案已略過");
+      setAnnouncement(getAdmissionAnnouncement(paths.length, added.length, added.filter((job) => job.status === "failed").length));
+      if (added.length) setArrivalDelays((current) => {
+        const next = new Map(current);
+        added.slice(0, 3).forEach((job, index) => next.set(job.id, getQueueArrivalDelay(index)));
+        return next;
+      });
       setNotice("");
     } catch (error) { setNotice(String(error)); }
   }, []);
@@ -170,9 +176,9 @@ function App() {
         <div className="setting-note"><Sparkles size={15} /><span><b>{options.mode === "lossless" ? "Lossless" : options.mode === "quality" ? "High quality" : options.mode === "balanced" ? "Balanced" : "Small size"}</b> JPEG 依所選模式編碼；PNG {options.pngLossy ? "採用有損色彩縮減" : "無損最佳化"}。未達 10% 節省時會自動略過。</span><span className="lossless-note">Lossless 不重新編碼 JPEG</span></div>
       </section>
       <section className="queue-section"><div className="section-heading queue-heading"><div><span className="section-index">02 / YOUR FILES</span><h2>待處理清單 <span className="count-badge">{jobs.length.toString().padStart(2, "0")}</span></h2></div><div className="queue-actions">{allFinished && revealableIds.length > 1 && <button className="text-button" title={getResultActionLabel(revealableIds.length)} onClick={() => void reveal(revealableIds)}><FolderOpen size={15} />{getResultActionLabel(revealableIds.length)}</button>}<button className="text-button" onClick={() => void chooseFiles()} title="加入圖片"><Plus size={15} />加入檔案</button>{jobs.length > 0 && <button className="text-button muted" onClick={() => void clearQueue()} disabled={activeCount > 0} title="清空清單">清空</button>}</div></div>
-        {jobs.length === 0 ? <div className="empty-queue"><span className="empty-icon"><FileImage size={18} /></span><span><b>清單還是空的</b><small>加入 JPEG 或 PNG，就可以開始整理空間。</small></span></div> : <div className="job-table"><div className="table-head"><span>檔案</span><span>尺寸</span><span>原始大小</span><span>狀態</span><span /></div>{jobs.map((job) => <article className="job-row" key={job.id}>
+        {jobs.length === 0 ? <div className="empty-queue"><span className="empty-icon"><FileImage size={18} /></span><span><b>清單還是空的</b><small>加入 JPEG 或 PNG，就可以開始整理空間。</small></span></div> : <div className="job-table"><div className="table-head"><span>檔案</span><span>尺寸</span><span>原始大小</span><span>狀態</span><span /></div>{jobs.map((job) => <article className={`job-row ${arrivalDelays.has(job.id) ? "arriving" : ""}`} style={{ "--arrival-delay": `${arrivalDelays.get(job.id) ?? 0}ms` } as CSSProperties} onAnimationEnd={() => setArrivalDelays((current) => { const next = new Map(current); next.delete(job.id); return next; })} key={job.id}>
           <div className="job-file">{job.thumbnail ? <button className="thumbnail-button" title={`放大預覽 ${job.fileName}`} aria-label={`放大預覽 ${job.fileName}`} onClick={(event) => void showPreview(job, event.currentTarget)}><img className="job-thumbnail" src={job.thumbnail} alt="" /></button> : <span className={`file-badge ${job.extension === "png" ? "png" : "jpg"}`}>{job.extension === "png" ? "PNG" : "JPG"}</span>}<span className="job-name-wrap"><b title={job.fileName}>{job.fileName}</b><small>{job.inputPath.split(/[\\/]/).slice(-2, -1)[0] ?? "本機檔案"}</small></span></div><span className="job-dimensions">{job.width} × {job.height}</span><span className="job-size">{formatBytes(job.originalBytes)}</span>
-          <span className={`job-status ${job.status}`} aria-label={`${job.fileName}：${cancelRequested.has(job.id) ? "正在安全取消" : statusLabel(job.status)}`}>{["analyzing", "compressing", "validating"].includes(job.status) ? <LoaderCircle className="spin" size={13} /> : job.status === "completed" ? <Check size={13} /> : job.status === "failed" ? <CircleAlert size={13} /> : null}{cancelRequested.has(job.id) ? "正在安全取消…" : statusLabel(job.status)}{job.status === "completed" && job.outputBytes !== undefined && <small>−{Math.max(0, Math.round((1 - job.outputBytes / job.originalBytes) * 100))}%</small>}</span><button className="row-preview" title={`預覽 ${job.fileName}`} onClick={(event) => void showPreview(job, event.currentTarget)} aria-label={previewingId === job.id ? `正在準備 ${job.fileName} 預覽` : `預覽 ${job.fileName}`} disabled={previewingId === job.id}>{previewingId === job.id ? <LoaderCircle className="spin" size={14} /> : <Eye size={14} />}</button>{job.status === "completed" && job.outputPath && <button className="row-preview" title={`在 Finder 顯示 ${job.fileName}`} onClick={() => void reveal([job.id])} aria-label={`在 Finder 顯示 ${job.fileName}`}><FolderOpen size={14} /></button>}<button className="row-remove" title={getJobActionLabel(job, cancelRequested.has(job.id))} onClick={() => void removeJob(job.id)} aria-label={getJobActionLabel(job, cancelRequested.has(job.id))}><X size={15} /></button>
+          <span className={`job-status ${job.status}`} aria-label={`${job.fileName}：${cancelRequested.has(job.id) ? "正在安全取消" : statusLabel(job.status)}`}>{["analyzing", "compressing", "validating"].includes(job.status) ? <LoaderCircle className="spin" size={13} /> : job.status === "completed" ? <Check size={13} /> : job.status === "failed" ? <CircleAlert size={13} /> : job.status === "skipped" ? <Minus size={13} /> : job.status === "cancelled" ? <Ban size={13} /> : null}{cancelRequested.has(job.id) ? "正在安全取消…" : statusLabel(job.status)}{job.status === "completed" && job.outputBytes !== undefined && <small>−{Math.max(0, Math.round((1 - job.outputBytes / job.originalBytes) * 100))}%</small>}</span><button className="row-preview" title={`預覽 ${job.fileName}`} onClick={(event) => void showPreview(job, event.currentTarget)} aria-label={previewingId === job.id ? `正在準備 ${job.fileName} 預覽` : `預覽 ${job.fileName}`} disabled={previewingId === job.id}>{previewingId === job.id ? <LoaderCircle className="spin" size={14} /> : <Eye size={14} />}</button>{job.status === "completed" && job.outputPath && <button className="row-preview" title={`在 Finder 顯示 ${job.fileName}`} onClick={() => void reveal([job.id])} aria-label={`在 Finder 顯示 ${job.fileName}`}><FolderOpen size={14} /></button>}<button className="row-remove" title={getJobActionLabel(job, cancelRequested.has(job.id))} onClick={() => void removeJob(job.id)} aria-label={getJobActionLabel(job, cancelRequested.has(job.id))}><X size={15} /></button>
           {job.error && <span className="job-error">{job.error}</span>}{["compressing", "analyzing", "validating"].includes(job.status) && <span className="progress-track" role="progressbar" aria-label={`${job.fileName}，${statusLabel(job.status)}`}><span className="indeterminate" /></span>}
         </article>)}</div>}{notice && <div className="notice" role="alert" aria-live="assertive"><CircleAlert size={15} />{notice}</div>}
       </section>
