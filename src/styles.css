@@ -1,4 +1,4 @@
-:root { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; color: #24241f; background: #f7f6f2; font-synthesis: none; text-rendering: optimizeLegibility; }
+:root { --motion-micro: 150ms; --motion-view: 210ms; --motion-stagger-step: 35ms; --motion-ease: cubic-bezier(.2, .7, .2, 1); font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; color: #24241f; background: #f7f6f2; font-synthesis: none; text-rendering: optimizeLegibility; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 760px; min-height: 100vh; }
 button { font: inherit; }
@@ -106,3 +106,16 @@ button { font: inherit; }
 .thumbnail-button { width: 48px; height: 40px; flex: 0 0 48px; display: grid; place-items: center; padding: 0; overflow: hidden; border: 1px solid #e2e0d7; border-radius: 3px; background: #f0efe9; cursor: zoom-in; }
 .thumbnail-button:focus-visible { outline: 2px solid #914a30; outline-offset: 2px; }
 .job-thumbnail { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* The workspace stays interactive while its first paint settles into place. */
+.topbar { animation: app-entry-settle 160ms var(--motion-ease) both; }
+.workspace { animation: app-entry-settle 160ms var(--motion-ease) both; }
+.bottom-bar { animation: app-entry-settle 160ms var(--motion-ease) both; }
+.dropzone,.button,.mode-card,.png-lossy-toggle { transition-duration: var(--motion-micro); transition-timing-function: var(--motion-ease); }
+.preview-overlay { animation-duration: var(--motion-view); animation-timing-function: var(--motion-ease); }
+.preview-dialog { animation-duration: var(--motion-view); animation-timing-function: var(--motion-ease); }
+@keyframes app-entry-settle { from { opacity: .86; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion-micro: 0ms; --motion-view: 0ms; --motion-stagger-step: 0ms; }
+  .topbar,.workspace,.bottom-bar { animation: none !important; }
+}
