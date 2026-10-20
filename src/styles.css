@@ -299,5 +299,9 @@ button { font: inherit; }
 .inspector-checkbox input { width: 15px; height: 15px; accent-color: #ad6241; }
 .inherit-caption { display: block; color: #76756c; font-size: 11px; }
 .override-mark { padding: 2px 4px; border-radius: 3px; background: #f0e5da; color: #8d5135 !important; font: 10px -apple-system, BlinkMacSystemFont, sans-serif !important; }
+.job-name-wrap .override-mark { display: inline-block; margin-left: 6px; font-style: normal; vertical-align: 1px; }
+.retry-control { color: #9a5639; }
+.retry-action { border-color: #d8b8a6; background: #f8eee7; color: #8c4f34; }
+.retry-action:hover { background: #f3e3d8; }
 .locked-settings { margin-top: 13px; display: flex; flex-direction: column; gap: 4px; color: #77766e; }
 .locked-settings span { font-size: 11px; line-height: 1.4; }

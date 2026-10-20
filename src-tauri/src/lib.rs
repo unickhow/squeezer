@@ -11,6 +11,7 @@ pub fn run() {
             commands::reveal_outputs,
             commands::start_jobs,
             commands::cancel_job,
+            commands::retry_job,
             commands::remove_job,
             commands::clear_jobs,
         ])

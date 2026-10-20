@@ -275,6 +275,30 @@ fn options_for_job(job_id: &str, defaults: &CompressionOptions, overrides: &Hash
     overrides.get(job_id).unwrap_or(defaults).clone()
 }
 
+fn retry_failed_job(job: &mut CompressionJob) -> Result<(), String> {
+    if job.status != JobStatus::Failed { return Err("只有失敗的工作可以重試".into()); }
+    job.status = JobStatus::Queued;
+    job.progress = 0;
+    job.error = None;
+    job.output_path = None;
+    job.output_bytes = None;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn retry_job(app: AppHandle, manager: State<'_, JobManager>, id: String) -> Result<(), String> {
+    let updated = {
+        let mut state = manager.0.lock().map_err(|_| "無法存取任務清單".to_string())?;
+        let job = state.jobs.get_mut(&id).ok_or_else(|| "找不到此工作".to_string())?;
+        retry_failed_job(job)?;
+        let updated = job.clone();
+        state.cancellations.remove(&id);
+        updated
+    };
+    emit_update(&app, &updated);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn cancel_job(app: AppHandle, manager: State<'_, JobManager>, id: String) -> Result<(), String> {
     let mut state = manager.0.lock().map_err(|_| "無法存取任務清單".to_string())?;
@@ -352,9 +376,32 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{JobManager, admit_paths, apply_analysis, apply_job_update, claim_analysis_worker, collect_revealable_outputs, new_job, options_for_job, pending_job, progress_for_status};
+    use super::{JobManager, admit_paths, apply_analysis, apply_job_update, claim_analysis_worker, collect_revealable_outputs, new_job, options_for_job, pending_job, progress_for_status, retry_failed_job};
     use std::collections::HashMap;
     use crate::engine::{analyzer::MediaInfo, images::{CompressionMode, CompressionOptions, JobStatus}};
+
+    #[test]
+    fn retry_job_requeues_failed_job_and_clears_error() {
+        let mut job = new_job("photo.jpg".into(), None, Some("compression failed".into()));
+        job.status = JobStatus::Failed;
+        job.output_path = Some("photo.squeezed.jpg".into());
+        job.output_bytes = Some(42);
+        job.progress = 80;
+        let id = job.id.clone();
+        retry_failed_job(&mut job).unwrap();
+        assert_eq!(job.status, JobStatus::Queued);
+        assert_eq!(job.id, id);
+        assert_eq!(job.progress, 0);
+        assert!(job.error.is_none());
+        assert!(job.output_path.is_none());
+        assert!(job.output_bytes.is_none());
+    }
+
+    #[test]
+    fn retry_job_rejects_non_failed_jobs() {
+        let mut job = new_job("photo.jpg".into(), None, None);
+        assert!(retry_failed_job(&mut job).unwrap_err().contains("失敗"));
+    }
 
     #[test]
     fn queued_job_uses_override_when_present() {
