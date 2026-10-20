@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowDownToLine, ArrowUpRight, Ban, Check, CircleAlert, Eye, FileImage, FolderOpen, Image as ImageIcon, LoaderCircle, Minus, Plus, ShieldCheck, Sparkles, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpRight, Ban, Check, CircleAlert, Eye, FileImage, FolderOpen, Image as ImageIcon, LoaderCircle, Minus, Plus, Search, ShieldCheck, Sparkles, X } from "lucide-react";
 import { addFiles, cancelJob, clearJobs, removeJob as removeQueuedJob, revealOutputs, startJobs, subscribeJobs } from "./lib/tauri";
 import { calculateSavings, formatBytes } from "./lib/format";
-import { getActionErrorMessage, getAdmissionAnnouncement, getJobActionLabel, getNextCompressionMode, getPrimaryActionState, getQueueArrivalDelay, getResultActionLabel, getResultCounts, getRevealableJobIds, getStatusAnnouncement, mergeAdmissionJobs } from "./lib/interactions";
+import { filterQueueJobs, getActionErrorMessage, getAdmissionAnnouncement, getJobActionLabel, getNextCompressionMode, getPrimaryActionState, getQueueArrivalDelay, getResultActionLabel, getResultCounts, getRevealableJobIds, getStatusAnnouncement, mergeAdmissionJobs } from "./lib/interactions";
 import type { CompressionJob, CompressionMode, CompressionOptions, JobStatus } from "./types";
 
 const modes: { id: CompressionMode; title: string; detail: string; icon: string }[] = [
-  { id: "lossless", title: "Lossless", detail: "PNG 無損・JPEG 略過", icon: "01" },
-  { id: "quality", title: "High quality", detail: "JPEG 90・PNG 無損", icon: "02" },
-  { id: "balanced", title: "Balanced", detail: "JPEG 82・PNG 無損", icon: "03" },
-  { id: "small", title: "Small size", detail: "JPEG 68・PNG 無損", icon: "04" },
+  { id: "lossless", title: "無損", detail: "PNG 無損・JPEG 略過", icon: "01" },
+  { id: "quality", title: "高畫質", detail: "JPEG 90・PNG 無損", icon: "02" },
+  { id: "balanced", title: "平衡", detail: "JPEG 82・PNG 無損", icon: "03" },
+  { id: "small", title: "小檔案", detail: "JPEG 68・PNG 無損", icon: "04" },
 ];
 const initialOptions: CompressionOptions = { mode: "quality", outputFormat: "original", preserveMetadata: true, minSavingsPercent: 10, pngLossy: false };
 
@@ -21,6 +21,8 @@ function statusLabel(status: JobStatus) {
 
 function App() {
   const [jobs, setJobs] = useState<CompressionJob[]>([]);
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [options, setOptions] = useState(initialOptions);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -50,6 +52,8 @@ function App() {
   const primaryAction = getPrimaryActionState(queuedCount, activeCount > 0, busy);
   const resultCounts = getResultCounts(jobs);
   const revealableIds = getRevealableJobIds(jobs);
+  const visibleJobs = filterQueueJobs(jobs, query);
+  const selectedJob = visibleJobs.find((job) => job.id === selectedId) ?? null;
   const summary = useMemo(() => `${jobs.length} 個檔案`, [jobs.length]);
 
   const importPaths = useCallback(async (paths: string[]) => {
@@ -57,6 +61,7 @@ function App() {
     try {
       const added = await addFiles(paths);
       setJobs((current) => mergeAdmissionJobs(current, added, latestJobs.current));
+      setSelectedId((current) => current ?? added.find((job) => job.status !== "failed")?.id ?? added[0]?.id ?? null);
       setAnnouncement(getAdmissionAnnouncement(paths.length, added.length, added.filter((job) => job.status === "failed").length));
       if (added.length) setArrivalDelays((current) => {
         const next = new Map(current);
@@ -137,6 +142,7 @@ function App() {
       }
       await removeQueuedJob(id);
       removedPreviewJobs.current.add(id);
+      if (selectedId === id) setSelectedId(null);
       if (previewPendingId.current === id) { previewRequest.current++; previewPendingId.current = null; setPreviewingId(null); }
       setPreview((current) => current?.job.id === id ? null : current);
       setJobs((current) => current.filter((item) => item.id !== id));
@@ -146,7 +152,7 @@ function App() {
     }
   }
   async function clearQueue() {
-    try { await clearJobs(); previewRequest.current++; previewPendingId.current = null; setPreviewingId(null); setPreview(null); setJobs([]); } catch (error) { setNotice(String(error)); }
+    try { await clearJobs(); previewRequest.current++; previewPendingId.current = null; setPreviewingId(null); setPreview(null); setSelectedId(null); setJobs([]); } catch (error) { setNotice(String(error)); }
   }
   async function showPreview(job: CompressionJob, trigger: HTMLElement) {
     if (previewPendingId.current === job.id) return;
@@ -176,32 +182,31 @@ function App() {
     if (preview) setPreviewClosing(true);
   }
 
-  return <main className="app-shell">
-    <header className="topbar"><a className="brand" href="#top" aria-label="Squeezer 首頁"><span className="brand-mark"><span /><span /><span /></span><span className="brand-name">squeezer<span className="brand-period">.</span></span></a><div className="topbar-meta"><span className="local-pill"><span className="local-dot" />100% 在你的 Mac 上處理</span></div></header>
+  useEffect(() => {
+    if (selectedId && !visibleJobs.some((job) => job.id === selectedId)) setSelectedId(null);
+  }, [query, selectedId, visibleJobs]);
+
+  return <main className={`app-shell ${dragging ? "is-dragging" : ""}`}>
+    <header className="topbar"><div className="brand"><span className="brand-mark"><span /><span /><span /></span><span className="brand-name">Squeezer</span></div><div className="topbar-meta"><span className="local-pill"><span className="local-dot" />本機處理</span></div></header>
     <div className="workspace" id="top">
-      <section className="intro"><div className="eyebrow"><span>IMAGE WORKFLOW</span><span className="eyebrow-line" /></div><div className="intro-row"><div><h1>Make room<br /><em>for what matters.</em></h1><p className="intro-copy">收小檔案，留下每個重要細節。<br />所有處理都在這台 Mac 上完成。</p></div><div className="intro-stamp"><ShieldCheck size={18} strokeWidth={1.5} /><span>原檔<br />完整保留</span></div></div></section>
-      <button type="button" className={`dropzone ${dragging ? "is-dragging" : ""}`} onClick={() => void chooseFiles()} aria-label="選擇 JPEG 或 PNG 圖片">
-        <div className="drop-decoration dec-one" /><div className="drop-decoration dec-two" /><div className="drop-symbol"><ImageIcon size={23} strokeWidth={1.5} /><span className="plus-badge"><Plus size={13} /></span></div>
-        <div className="drop-copy"><strong>{dragging ? "放開，加入待處理清單" : "把圖片拖進來"}</strong><span>JPEG 與 PNG · 可一次加入多個檔案</span></div>
-        <span className="button button-secondary"><FolderOpen size={16} />選擇檔案</span><span className="drop-footnote">本機處理，不需上傳 · 原始檔不會被修改</span>
-      </button>
-      <section className="queue-section"><div className="section-heading queue-heading"><div><span className="section-index">01 / YOUR FILES</span><h2>待處理清單 <span className="count-badge">{jobs.length.toString().padStart(2, "0")}</span></h2></div><div className="queue-actions">{allFinished && revealableIds.length > 1 && <button className="text-button" title={getResultActionLabel(revealableIds.length)} onClick={() => void reveal(revealableIds)}><FolderOpen size={15} />{getResultActionLabel(revealableIds.length)}</button>}<button className="text-button" onClick={() => void chooseFiles()} title="加入圖片"><Plus size={15} />加入檔案</button>{jobs.length > 0 && <button className="text-button muted" onClick={() => void clearQueue()} disabled={activeCount > 0} title="清空清單">清空</button>}</div></div>
-        {jobs.length === 0 ? <div className="empty-queue"><span className="empty-icon"><FileImage size={18} /></span><span><b>清單還是空的</b><small>加入 JPEG 或 PNG，就可以開始整理空間。</small></span></div> : <div className="job-table"><div className="table-head"><span>檔案</span><span>尺寸</span><span>原始大小</span><span>狀態</span><span /></div>{jobs.map((job) => <article className={`job-row ${arrivalDelays.has(job.id) ? "arriving" : ""} ${resultFeedbackIds.has(job.id) ? `result-${job.status}` : ""} ${["analyzing", "compressing", "validating"].includes(job.status) ? `active-${job.status}` : ""}`} style={{ "--arrival-delay": `${arrivalDelays.get(job.id) ?? 0}ms` } as CSSProperties} onAnimationEnd={(event) => {
+      <section className="queue-section"><div className="section-heading queue-heading"><div><span className="section-index">工作區</span><h1>圖片清單 <span className="count-badge">{jobs.length}</span></h1></div><div className="queue-actions">{allFinished && revealableIds.length > 1 && <button className="text-button" title={getResultActionLabel(revealableIds.length)} onClick={() => void reveal(revealableIds)}><FolderOpen size={16} />{getResultActionLabel(revealableIds.length)}</button>}<button className="text-button add-action" onClick={() => void chooseFiles()} title="加入照片"><Plus size={17} />加入照片</button>{jobs.length > 0 && <button className="text-button muted" onClick={() => void clearQueue()} disabled={activeCount > 0} title="清空清單">清空</button>}</div></div>
+        <div className="queue-toolbar"><label className="search-box"><Search size={16} /><input aria-label="搜尋檔名或資料夾" placeholder="搜尋檔名或資料夾…" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { setQuery(""); event.currentTarget.blur(); } }} />{query && <button type="button" className="clear-search" aria-label="清除搜尋" onClick={() => setQuery("")}><X size={14} /></button>}</label><span className="local-caption"><ShieldCheck size={14} />原始檔不會被修改</span></div>
+        {jobs.length === 0 ? <button type="button" className={`empty-workspace ${dragging ? "is-dragging" : ""}`} onClick={() => void chooseFiles()}><span className="empty-icon"><FileImage size={22} /></span><b>{dragging ? "放開即可加入照片" : "將照片拖放到這裡"}</b><span>支援 JPEG 與 PNG，所有處理都在這台 Mac 上完成</span><span className="button button-secondary"><FolderOpen size={16} />選擇照片</span></button> : visibleJobs.length === 0 ? <div className="no-results"><Search size={20} /><b>找不到符合的照片</b><span>試試其他檔名或資料夾名稱。</span><button className="text-button" onClick={() => setQuery("")}>清除搜尋</button></div> : <div className="workspace-grid"><div className="job-table"><div className="table-head"><span>照片</span><span>尺寸</span><span>原始大小</span><span>狀態</span><span /></div>{visibleJobs.map((job) => <article tabIndex={0} aria-label={`${job.fileName}，${statusLabel(job.status)}`} aria-current={selectedId === job.id ? "true" : undefined} className={`job-row ${selectedId === job.id ? "selected" : ""} ${arrivalDelays.has(job.id) ? "arriving" : ""} ${resultFeedbackIds.has(job.id) ? `result-${job.status}` : ""} ${["analyzing", "compressing", "validating"].includes(job.status) ? `active-${job.status}` : ""}`} onClick={() => setSelectedId(job.id)} onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && event.target === event.currentTarget) { event.preventDefault(); setSelectedId(job.id); } }} style={{ "--arrival-delay": `${arrivalDelays.get(job.id) ?? 0}ms` } as CSSProperties} onAnimationEnd={(event) => {
           if (event.animationName === "row-arrive") setArrivalDelays((current) => { const next = new Map(current); next.delete(job.id); return next; });
           if (event.animationName.startsWith("row-result-")) {
             setResultFeedbackIds((current) => { const next = new Set(current); next.delete(job.id); return next; });
             setArrivalDelays((current) => { const next = new Map(current); next.delete(job.id); return next; });
           }
         }} key={job.id}>
-          <div className="job-file">{job.thumbnail ? <button className="thumbnail-button" title={`放大預覽 ${job.fileName}`} aria-label={`放大預覽 ${job.fileName}`} onClick={(event) => void showPreview(job, event.currentTarget)}><img className="job-thumbnail" src={job.thumbnail} alt="" /></button> : <span className={`file-badge ${job.extension === "png" ? "png" : "jpg"}`}>{job.extension === "png" ? "PNG" : "JPG"}</span>}<span className="job-name-wrap"><b title={job.fileName}>{job.fileName}</b><small>{job.inputPath.split(/[\\/]/).slice(-2, -1)[0] ?? "本機檔案"}</small></span></div><span className="job-dimensions">{job.width} × {job.height}</span><span className="job-size">{formatBytes(job.originalBytes)}</span>
+          <div className="job-file">{job.thumbnail ? <button className="thumbnail-button" title={`放大預覽 ${job.fileName}`} aria-label={`放大預覽 ${job.fileName}`} onClick={(event) => { event.stopPropagation(); void showPreview(job, event.currentTarget); }}><img className="job-thumbnail" src={job.thumbnail} alt="" /></button> : <span className={`file-badge ${job.extension === "png" ? "png" : "jpg"}`}>{job.extension === "png" ? "PNG" : "JPG"}</span>}<span className="job-name-wrap"><b title={job.fileName}>{job.fileName}</b><small>{job.inputPath.split(/[\\/]/).slice(-2, -1)[0] ?? "本機檔案"} · {job.extension.toUpperCase()}</small></span></div><span className="job-dimensions">{job.width} × {job.height}</span><span className="job-size">{formatBytes(job.originalBytes)}</span>
           <span className={`job-status ${job.status}`} aria-label={`${job.fileName}：${cancelRequested.has(job.id) ? "正在安全取消" : statusLabel(job.status)}`}>{["analyzing", "compressing", "validating"].includes(job.status) ? <LoaderCircle className="spin" size={13} /> : job.status === "completed" ? <Check size={13} /> : job.status === "failed" ? <CircleAlert size={13} /> : job.status === "skipped" ? <Minus size={13} /> : job.status === "cancelled" ? <Ban size={13} /> : null}{cancelRequested.has(job.id) ? "正在安全取消…" : statusLabel(job.status)}{job.status === "completed" && job.outputBytes !== undefined && <small>−{Math.max(0, Math.round((1 - job.outputBytes / job.originalBytes) * 100))}%</small>}</span><button className="row-preview" title={`預覽 ${job.fileName}`} onClick={(event) => void showPreview(job, event.currentTarget)} aria-label={previewingId === job.id ? `正在準備 ${job.fileName} 預覽` : `預覽 ${job.fileName}`} disabled={previewingId === job.id}>{previewingId === job.id ? <LoaderCircle className="spin" size={14} /> : <Eye size={14} />}</button>{job.status === "completed" && job.outputPath && <button className="row-preview" title={`在 Finder 顯示 ${job.fileName}`} onClick={() => void reveal([job.id])} aria-label={`在 Finder 顯示 ${job.fileName}`}><FolderOpen size={14} /></button>}<button className="row-remove" title={getJobActionLabel(job, cancelRequested.has(job.id))} onClick={() => void removeJob(job.id)} aria-label={getJobActionLabel(job, cancelRequested.has(job.id))}><X size={15} /></button>
           {previewingId === job.id && <span className="preview-loading" role="status" aria-live="polite"><LoaderCircle className="spin" size={12} />正在準備預覽…</span>}{job.error && <span className="job-error">{job.error}</span>}{actionError?.jobId === job.id && <span className="job-error action-error" role="alert">{actionError.message}</span>}{["compressing", "analyzing", "validating"].includes(job.status) && <span className="progress-track" role="progressbar" aria-label={`${job.fileName}，${statusLabel(job.status)}`}><span className="indeterminate" /></span>}
-        </article>)}</div>}{notice && <div className="notice" role="alert" aria-live="assertive"><CircleAlert size={15} />{notice}</div>}
+        </article>)}</div><aside className={`inspector ${selectedJob ? "has-selection" : ""}`}>{selectedJob ? <><div className="inspector-preview">{selectedJob.thumbnail ? <img src={selectedJob.thumbnail} alt={`${selectedJob.fileName} 縮圖`} /> : <FileImage size={32} />}</div><div className="inspector-heading"><span className="section-index">照片資訊</span><h2 title={selectedJob.fileName}>{selectedJob.fileName}</h2><span className={`job-status ${selectedJob.status}`}>{statusLabel(selectedJob.status)}</span></div><dl className="inspector-details"><div><dt>格式</dt><dd>{selectedJob.extension.toUpperCase()}</dd></div><div><dt>尺寸</dt><dd>{selectedJob.width} × {selectedJob.height}</dd></div><div><dt>原始大小</dt><dd>{formatBytes(selectedJob.originalBytes)}</dd></div><div><dt>來源資料夾</dt><dd>{selectedJob.inputPath.split(/[\\/]/).slice(-2, -1)[0] ?? "本機檔案"}</dd></div></dl><button className="inspector-preview-action" onClick={(event) => void showPreview(selectedJob, event.currentTarget)}><Eye size={15} />檢視原圖</button>{selectedJob.error && <p className="inspector-error">{selectedJob.error}</p>}</> : <div className="inspector-empty"><ImageIcon size={24} /><b>{query && jobs.length ? "沒有選取的照片" : "選取一張照片"}</b><span>{query && jobs.length ? "清除搜尋或從清單選取其他項目。" : "照片詳細資訊會顯示在這裡。"}</span></div>}</aside></div>}{notice && <div className="notice" role="alert" aria-live="assertive"><CircleAlert size={15} />{notice}</div>}
       </section>
-      <section className="settings-section"><div className="section-heading"><div><span className="section-index">02 / COMPRESSION</span><h2>選擇壓縮方式</h2></div><span className="section-aside">你可以隨時更改</span></div>
+      <section className="settings-section"><div className="section-heading"><div><span className="section-index">壓縮設定</span><h2>整批品質</h2></div><span className="section-aside">套用於待處理照片</span></div>
         <div className="mode-grid" data-selected-index={modes.findIndex((mode) => mode.id === options.mode)} role="radiogroup" aria-label="壓縮方式">{modes.map((mode, index) => <button key={mode.id} ref={(element) => { modeRefs.current[index] = element; }} role="radio" aria-checked={options.mode === mode.id} tabIndex={options.mode === mode.id ? 0 : -1} className={`mode-card ${options.mode === mode.id ? "selected" : ""}`} onClick={() => setOptions((value) => ({ ...value, mode: mode.id }))} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); const next = getNextCompressionMode(options.mode, event.key); const nextIndex = modes.findIndex((item) => item.id === next); setOptions((value) => ({ ...value, mode: next })); modeRefs.current[nextIndex]?.focus(); } }}><div className="mode-card-top"><span className="mode-number">{mode.icon}</span><span className="radio-dot">{options.mode === mode.id && <span />}</span></div><strong>{mode.title}</strong><span className="mode-detail">{mode.detail}</span></button>)}</div>
         <label className={`png-lossy-toggle ${options.pngLossy ? "enabled" : ""}`}><input type="checkbox" checked={options.pngLossy} onChange={(event) => setOptions((value) => ({ ...value, pngLossy: event.target.checked }))} /><span className="toggle-track" aria-hidden="true"><span /></span><span className="png-lossy-copy"><b>PNG 有損色彩縮減</b><small>最多 256 色，透明度保留；可能移除部分 PNG 附加資料。完成後可點縮圖放大比較。</small></span><span className="png-lossy-state">{options.pngLossy ? "已開啟" : "選用"}</span></label>
-        <div className="setting-note"><Sparkles size={15} /><span><b>{options.mode === "lossless" ? "Lossless" : options.mode === "quality" ? "High quality" : options.mode === "balanced" ? "Balanced" : "Small size"}</b> JPEG 依所選模式編碼；PNG {options.pngLossy ? "採用有損色彩縮減" : "無損最佳化"}。未達 10% 節省時會自動略過。</span><span className="lossless-note">Lossless 不重新編碼 JPEG</span></div>
+        <div className="setting-note"><Sparkles size={15} /><span><b>{modes.find((mode) => mode.id === options.mode)?.title}</b> JPEG 依所選模式編碼；PNG {options.pngLossy ? "採用有損色彩縮減" : "無損最佳化"}。未達 10% 節省時會自動略過。</span><span className="lossless-note">無損模式不重新編碼 JPEG</span></div>
       </section>
     </div>
     <footer className="bottom-bar"><div className="bottom-summary">{jobs.length > 0 ? <><span className="summary-number">{jobs.length}</span><span>{summary}<small>{allFinished ? `完成 ${resultCounts.completed} · 略過 ${resultCounts.skipped} · 失敗 ${resultCounts.failed} · 取消 ${resultCounts.cancelled}` : activeCount > 0 ? `已處理 ${completed.length} · 正在處理 ${activeCount} · 等待 ${queuedCount}` : "原始檔將保留不動"}</small></span></> : <><span className="bottom-lock"><ShieldCheck size={17} /></span><span>安全、私密、完全離線<small>不會覆寫原始檔案</small></span></>}</div><div className="bottom-result">{allFinished && savings > 0 ? <><span>總共省下</span><strong>{formatBytes(savings)}</strong><small>{savedPercent}%</small></> : allFinished ? <><span>容量變化</span><strong>未減少</strong><small>保留原始品質</small></> : <><span>可用空間</span><strong>—</strong><small>完成後計算</small></>}</div><button className={`button button-primary ${busy || activeCount > 0 ? "is-busy" : ""}`} disabled={primaryAction.disabled} onClick={() => void compressAll()} aria-live="polite">{activeCount > 0 || busy ? <LoaderCircle className="spin" size={16} /> : <ArrowDownToLine size={16} />}{primaryAction.label}<ArrowUpRight size={14} className="button-arrow" /></button></footer>
