@@ -1,45 +1,53 @@
 # Squeezer
 
-Squeezer is a local-first macOS image and video compression app. It keeps the original file untouched and writes validated results beside it with a `.squeezed` suffix.
+Squeezer is a local-first macOS app for compressing images and videos. Files are processed on your Mac; originals stay untouched, and successful results are written beside them with a `.squeezed` suffix.
 
-## Run locally
+## Features
 
-Prerequisites: macOS, Xcode Command Line Tools, Rust, and Node.js 20.19 or newer.
+- Import JPEG, PNG, MP4, MOV, and M4V files through the native picker or drag and drop.
+- Review image and video thumbnails, dimensions, file sizes, and video duration in one queue.
+- Set image and video compression defaults independently, with per-file overrides.
+- Choose JPEG quality modes and optionally reduce PNGs to a palette of up to 256 colors while retaining transparency.
+- Encode video to H.264 MP4 with high, balanced, or small-file presets; optionally limit the long edge to 1080p or 720p.
+- Set a best-effort target size. Squeezer measures the result and reports when the target could not be met.
+- Preview images side by side and compare a video's original and compressed versions in one player.
+- Cancel active work. Results are validated before they are kept, and files that save less than 10% are skipped by default.
+
+## Requirements
+
+- macOS (tested on macOS 26, Apple Silicon).
+- For development: Xcode Command Line Tools, Rust, and Node.js 20.19 or newer.
+
+## Download and install
+
+GitHub release packages will be published under the repository's **Releases** page once repository publishing is configured. The v1.0.0 app bundle is not signed or notarized yet; macOS may show a security warning when opening a locally built copy.
+
+## Build from source
 
 ```sh
 npm install
-npm run tauri -- dev
+npm run tauri dev
 ```
 
-Create a local app bundle with:
+Build a macOS app bundle (and DMG when configured by Tauri):
 
 ```sh
-npm run tauri -- build
+npm run build
+npm run tauri build
 ```
 
-## Current scope
+## Video support
 
-- Import JPEG and PNG files using the native picker or window drag and drop.
-- Import MP4, MOV, and M4V videos into the same mixed-media queue.
-- Queue jobs, report per-file state, and cancel active work.
-- JPEG quality modes use macOS `sips`/ImageIO. Lossless mode skips JPEG re-encoding.
-- PNG uses `oxipng` lossless optimization by default. An optional lossy mode reduces PNGs to an indexed palette of up to 256 colors while retaining transparency.
-- Outputs are decoded and checked for dimensions; PNG transparency is checked before output placement.
-- Images can be previewed before and after compression.
-- Videos show a poster and duration in the queue, and can be played before and after compression through a narrowly scoped local stream.
-- Videos can be compressed to H.264 MP4 with high, balanced, or small-file quality, optional 1080p/720p downscaling, and a best-effort target size.
-- Video target size is measured after encoding and can receive one bounded bitrate correction; the app reports actual size when the target is missed.
-- The main workflow follows file import, compression options, and batch start in that order. Import and per-file result changes receive local feedback, and motion follows the system reduced-motion preference.
-- Inputs are limited to 512 MiB, 20,000 pixels per edge, and 100 megapixels to bound decode memory use.
-- Files are processed sequentially. Outputs that save less than 10% are skipped by default.
+Video output is H.264 MP4. Squeezer accepts H.264 or HEVC sources that AVFoundation can read, with no audio or one AAC audio track. It does not apply the image input-size limit to videos. A target size is best effort, not a guarantee; the displayed result uses the measured output size.
 
-## Known limits
+HDR and Dolby Vision, ProRes, spatial or multiview video, subtitles, chapter tracks, and multiple audio tracks are not supported in v1. HEVC output, WebP, HEIC, output-folder selection, metadata controls, and pause/resume are also not included.
 
-- Video output is H.264 MP4. H.264/HEVC sources with no audio or one AAC audio track are supported when AVFoundation can read them. HDR/Dolby Vision, ProRes, spatial/multiview, subtitle/chapter tracks, and multiple audio tracks are not supported.
-- HEVC output, WebP, HEIC, output-folder selection, metadata controls, and pause/resume are not implemented.
-- JPEG encoding uses the macOS built-in ImageIO tool and requires macOS. It does not bundle MozJPEG.
-- The optional PNG color reduction is a local palette quantizer; its visual quality and savings vary by image and are not guaranteed to match TinyPNG.
-- Signing and notarization are outside the current MVP.
+## Image support and limits
+
+- JPEG quality encoding uses macOS ImageIO. Lossless mode does not re-encode JPEG.
+- PNG uses `oxipng` lossless optimization by default. Optional palette reduction can change appearance and remove ancillary PNG data.
+- Images are limited to 512 MiB, 20,000 pixels per edge, and 100 megapixels to bound decode memory use.
+- The PNG palette reducer is local; its quality and savings vary and are not guaranteed to match online services such as TinyPNG.
 
 ## Checks
 

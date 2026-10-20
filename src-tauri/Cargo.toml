@@ -1,6 +1,6 @@
 [package]
 name = "squeezer"
-version = "0.1.0"
+version = "1.0.0"
 description = "Local-first media compression for macOS"
 authors = ["Squeezer"]
 edition = "2024"
