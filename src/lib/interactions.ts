@@ -3,10 +3,10 @@ import type { CompressionJob, CompressionMode, CompressionOptions } from "../typ
 const modes: CompressionMode[] = ["lossless", "quality", "balanced", "small"];
 
 export function getPrimaryActionState(queuedCount: number, active: boolean, busy: boolean): { label: string; disabled: boolean } {
-  if (busy) return { label: `正在開始 ${queuedCount} 張…`, disabled: true };
+  if (busy) return { label: `正在開始 ${queuedCount} 個檔案…`, disabled: true };
   if (active) return { label: "正在處理…", disabled: true };
-  if (queuedCount === 0) return { label: "加入圖片後即可開始", disabled: true };
-  return { label: `壓縮 ${queuedCount} 張`, disabled: false };
+  if (queuedCount === 0) return { label: "加入檔案後即可開始", disabled: true };
+  return { label: `壓縮 ${queuedCount} 個檔案`, disabled: false };
 }
 
 export function getNextCompressionMode(current: CompressionMode, key: "ArrowLeft" | "ArrowRight"): CompressionMode {

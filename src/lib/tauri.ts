@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { CompressionJob, CompressionOptions } from "../types";
+import type { CompressionJob, CompressionOptions, VideoOptions } from "../types";
 
 export const addFiles = (paths: string[]) => invoke<CompressionJob[]>("add_files", { paths });
-export const startJobs = (options: CompressionOptions, overrides: Record<string, CompressionOptions>) => invoke<void>("start_jobs", { options, overrides });
+export const startJobs = (options: CompressionOptions, overrides: Record<string, CompressionOptions>, videoOptions: VideoOptions, videoOverrides: Record<string, VideoOptions>) => invoke<void>("start_jobs", { options, overrides, videoOptions, videoOverrides });
+export const videoPreviewPath = (id: string, after: boolean) => invoke<string>("video_preview_path", { id, after });
 export const cancelJob = (id: string) => invoke<void>("cancel_job", { id });
 export const retryJob = (id: string) => invoke<void>("retry_job", { id });
 export const removeJob = (id: string) => invoke<void>("remove_job", { id });

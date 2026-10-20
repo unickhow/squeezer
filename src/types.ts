@@ -1,5 +1,7 @@
 export type CompressionMode = "lossless" | "quality" | "balanced" | "small";
 export type JobStatus = "queued" | "analyzing" | "compressing" | "validating" | "completed" | "skipped" | "failed" | "cancelled";
+export type MediaType = "image" | "video";
+export type VideoQuality = "high" | "balanced" | "small";
 
 export interface CompressionJob {
   id: string;
@@ -7,10 +9,13 @@ export interface CompressionJob {
   outputPath?: string;
   thumbnail?: string;
   fileName: string;
-  extension: "jpg" | "jpeg" | "png";
-  mediaType: "image";
+  extension: string;
+  mediaType: MediaType;
   width: number;
   height: number;
+  durationMs?: number;
+  codec?: string;
+  audioCodec?: string;
   status: JobStatus;
   progress: number;
   originalBytes: number;
@@ -25,4 +30,11 @@ export interface CompressionOptions {
   preserveMetadata: boolean;
   minSavingsPercent: number;
   pngLossy: boolean;
+}
+
+export interface VideoOptions {
+  quality: VideoQuality;
+  maxDimension: 0 | 1080 | 720;
+  targetBytes?: number;
+  minSavingsPercent: number;
 }

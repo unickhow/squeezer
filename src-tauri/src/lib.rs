@@ -8,6 +8,7 @@ pub fn run() {
             commands::select_files,
             commands::add_files,
             commands::image_preview,
+            commands::video_preview_path,
             commands::reveal_outputs,
             commands::start_jobs,
             commands::cancel_job,

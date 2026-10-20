@@ -10,6 +10,7 @@ use std::{
 use tokio_util::sync::CancellationToken;
 
 use super::{paths::output_path_for, validator::validate_image};
+pub use super::jobs::{CompressionJob, JobStatus, MediaType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,30 +31,6 @@ impl Default for CompressionOptions {
     fn default() -> Self {
         Self { mode: CompressionMode::Quality, output_format: "original".into(), preserve_metadata: true, min_savings_percent: 10, png_lossy: false }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum JobStatus { Queued, Analyzing, Compressing, Validating, Completed, Skipped, Failed, Cancelled }
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CompressionJob {
-    pub id: String,
-    pub input_path: String,
-    pub output_path: Option<String>,
-    pub thumbnail: Option<String>,
-    pub file_name: String,
-    pub extension: String,
-    pub media_type: String,
-    pub width: u32,
-    pub height: u32,
-    pub status: JobStatus,
-    pub progress: u8,
-    pub original_bytes: u64,
-    pub output_bytes: Option<u64>,
-    pub error: Option<String>,
-    pub skip_reason: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -257,7 +234,7 @@ mod tests {
     use image::{GenericImageView, ImageEncoder, Rgba, RgbaImage, codecs::png::PngEncoder};
     use tempfile::tempdir;
     use tokio_util::sync::CancellationToken;
-    use super::{CompressionMode, CompressionOptions, CompressionJob, JobStatus, compress_image};
+    use super::{CompressionMode, CompressionOptions, CompressionJob, JobStatus, MediaType, compress_image};
 
     fn make_png(path: &std::path::Path) {
         let mut encoded = Cursor::new(Vec::new());
@@ -266,7 +243,7 @@ mod tests {
     }
     fn job(path: &std::path::Path) -> CompressionJob {
         let info = super::super::analyzer::analyze_media(path).unwrap();
-        CompressionJob { id: "test-job".into(), input_path: path.to_string_lossy().into(), output_path: None, thumbnail: None, file_name: info.file_name, extension: info.extension, media_type: "image".into(), width: info.width, height: info.height, status: JobStatus::Queued, progress: 0, original_bytes: info.original_bytes, output_bytes: None, error: None, skip_reason: None }
+        CompressionJob { id: "test-job".into(), input_path: path.to_string_lossy().into(), output_path: None, thumbnail: None, file_name: info.file_name, extension: info.extension, media_type: MediaType::Image, width: info.width, height: info.height, duration_ms: None, codec: None, audio_codec: None, status: JobStatus::Queued, progress: 0, original_bytes: info.original_bytes, output_bytes: None, error: None, skip_reason: None }
     }
 
     #[test]

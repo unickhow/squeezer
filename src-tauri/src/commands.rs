@@ -5,7 +5,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::engine::{
     analyzer::{MediaInfo, analyze_media_with_image},
-    images::{CompressionError, CompressionJob, CompressionOptions, JobStatus, compress_image},
+    images::{CompressionJob, CompressionOptions, JobStatus, MediaType, compress_image},
+    video_analysis::{VideoInfo, analyze_video},
+    videos::{VideoOptions, compress_video},
     preview::{image_preview as render_image_preview, image_thumbnail_from_image},
 };
 
@@ -53,7 +55,7 @@ fn progress_for_status(status: JobStatus) -> u8 {
 #[tauri::command]
 pub fn select_files() -> Vec<String> {
     rfd::FileDialog::new()
-        .add_filter("圖片", &["jpg", "jpeg", "png"])
+        .add_filter("媒體", &["jpg", "jpeg", "png", "mp4", "mov", "m4v"])
         .pick_files()
         .unwrap_or_default()
         .into_iter()
@@ -66,13 +68,18 @@ pub fn add_files(app: AppHandle, manager: State<'_, JobManager>, paths: Vec<Stri
     let mut state = manager.0.lock().unwrap();
     let mut known_paths = state.jobs.values().map(|job| job.input_path.clone()).collect();
     let added = admit_paths(paths, &mut known_paths);
-    for job in &added {
+    for source_job in &added {
+        let mut job = source_job.clone();
+        if job.media_type == MediaType::Video && app.asset_protocol_scope().allow_file(&job.input_path).is_err() {
+            job.status = JobStatus::Failed;
+            job.error = Some("無法安全授權影片串流預覽".into());
+        }
         if job.status == JobStatus::Analyzing {
             state.analysis_queue.push_back(job.id.clone());
             state.cancellations.insert(job.id.clone(), CancellationToken::new());
         }
         state.jobs.insert(job.id.clone(), job.clone());
-        emit_update(&app, job);
+        emit_update(&app, &job);
     }
     let start_worker = claim_analysis_worker(&mut state);
     drop(state);
@@ -91,10 +98,10 @@ fn admit_file(input_path: String) -> CompressionJob {
     let path = Path::new(&input_path);
     let admission = fs::metadata(path).map_err(|error| format!("找不到檔案或無法讀取：{error}"))
         .and_then(|metadata| {
-            if !metadata.is_file() { return Err("只支援 JPEG 與 PNG 圖片".into()); }
+            if !metadata.is_file() { return Err("只支援 JPEG、PNG、MP4、MOV 與 M4V 檔案".into()); }
             match path.extension().and_then(|value| value.to_str()).map(str::to_ascii_lowercase).as_deref() {
-                Some("jpg" | "jpeg" | "png") => Ok(metadata.len()),
-                _ => Err("只支援 JPEG 與 PNG 圖片".into()),
+                Some("jpg" | "jpeg" | "png" | "mp4" | "mov" | "m4v") => Ok(metadata.len()),
+                _ => Err("只支援 JPEG、PNG、MP4、MOV 與 M4V 檔案".into()),
             }
         });
     match admission {
@@ -128,6 +135,34 @@ fn apply_analysis(job: &mut CompressionJob, result: Result<MediaInfo, String>) {
     }
 }
 
+fn apply_video_analysis(job: &mut CompressionJob, result: Result<VideoInfo, String>) {
+    match result {
+        Ok(info) => {
+            job.file_name = info.file_name;
+            job.extension = info.extension;
+            job.width = info.width;
+            job.height = info.height;
+            job.duration_ms = Some(info.duration_ms);
+            job.codec = Some(info.codec);
+            job.audio_codec = info.audio_codec;
+            job.original_bytes = info.original_bytes;
+            job.thumbnail = Some(info.thumbnail);
+            job.status = JobStatus::Queued;
+            job.error = None;
+        }
+        Err(error) => {
+            job.status = JobStatus::Failed;
+            job.error = Some(error);
+        }
+    }
+}
+
+fn video_helper_path(app: &AppHandle) -> PathBuf {
+    app.path().resource_dir().ok().map(|path| path.join("squeezer-video-helper"))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/squeezer-video-helper"))
+}
+
 fn claim_analysis_worker(state: &mut JobState) -> bool {
     if state.analysis_worker_running || state.analysis_queue.is_empty() { return false; }
     state.analysis_worker_running = true;
@@ -139,22 +174,23 @@ fn run_analysis_worker(app: AppHandle, manager: JobManager) {
         let next = {
             let mut state = manager.0.lock().unwrap();
             match state.analysis_queue.pop_front() {
-                Some(id) => state.jobs.get(&id).map(|job| (id, job.input_path.clone(), state.cancellations.get(&job.id).cloned())),
+                Some(id) => state.jobs.get(&id).map(|job| (id, job.input_path.clone(), job.media_type, state.cancellations.get(&job.id).cloned())),
                 None => { state.analysis_worker_running = false; return; }
             }
         };
-        let Some((id, path, token)) = next else { continue; };
-        let (result, thumbnail) = if token.as_ref().is_some_and(CancellationToken::is_cancelled) {
-            (None, None)
+        let Some((id, path, media_type, token)) = next else { continue; };
+        enum AnalysisResult { Image(Result<MediaInfo, String>, Option<String>), Video(Result<VideoInfo, String>), Cancelled }
+        let result = if token.as_ref().is_some_and(CancellationToken::is_cancelled) {
+            AnalysisResult::Cancelled
+        } else if media_type == MediaType::Video {
+            AnalysisResult::Video(analyze_video(Path::new(&path), &video_helper_path(&app)))
         } else {
             match analyze_media_with_image(Path::new(&path)) {
-                Ok((_info, _image)) if token.as_ref().is_some_and(CancellationToken::is_cancelled) => (None, None),
                 Ok((info, image)) => {
                     let format = if info.extension == "png" { image::ImageFormat::Png } else { image::ImageFormat::Jpeg };
-                    let thumbnail = image_thumbnail_from_image(&image, format).ok();
-                    (Some(Ok(info)), thumbnail)
+                    AnalysisResult::Image(Ok(info), image_thumbnail_from_image(&image, format).ok())
                 }
-                Err(error) => (Some(Err(error.to_string())), None),
+                Err(error) => AnalysisResult::Image(Err(error.to_string()), None),
             }
         };
         {
@@ -164,17 +200,15 @@ fn run_analysis_worker(app: AppHandle, manager: JobManager) {
                 state.cancellations.remove(&id);
                 continue;
             }
-            if let Some(result) = result {
-                if token.as_ref().is_some_and(CancellationToken::is_cancelled) {
-                    job.status = JobStatus::Cancelled;
-                    job.progress = 0;
-                } else {
-                    apply_analysis(job, result);
-                    job.thumbnail = thumbnail;
-                }
-            } else {
+            if token.as_ref().is_some_and(CancellationToken::is_cancelled) || matches!(result, AnalysisResult::Cancelled) {
                 job.status = JobStatus::Cancelled;
                 job.progress = 0;
+            } else {
+                match result {
+                    AnalysisResult::Image(result, thumbnail) => { apply_analysis(job, result); job.thumbnail = thumbnail; }
+                    AnalysisResult::Video(result) => apply_video_analysis(job, result),
+                    AnalysisResult::Cancelled => unreachable!(),
+                }
             }
             let updated = job.clone();
             state.cancellations.remove(&id);
@@ -193,6 +227,19 @@ pub fn image_preview(manager: State<'_, JobManager>, id: String, after: bool) ->
         &job.input_path
     };
     render_image_preview(Path::new(path)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn video_preview_path(manager: State<'_, JobManager>, id: String, after: bool) -> Result<String, String> {
+    let state = manager.0.lock().map_err(|_| "無法存取任務清單".to_string())?;
+    resolve_video_preview_path(&state.jobs, &id, after)
+}
+
+fn resolve_video_preview_path(jobs: &HashMap<String, CompressionJob>, id: &str, after: bool) -> Result<String, String> {
+    let job = jobs.get(id).filter(|job| job.media_type == MediaType::Video).ok_or_else(|| "找不到此影片工作".to_string())?;
+    let path = if after { job.output_path.as_deref().ok_or_else(|| "這個工作尚未產生輸出".to_string())? } else { &job.input_path };
+    if !Path::new(path).is_file() { return Err("影片檔案不存在或無法讀取".into()); }
+    Ok(path.to_owned())
 }
 
 #[tauri::command]
@@ -223,7 +270,7 @@ fn collect_revealable_outputs(jobs: &HashMap<String, CompressionJob>, ids: &[Str
 }
 
 #[tauri::command]
-pub fn start_jobs(app: AppHandle, manager: State<'_, JobManager>, options: CompressionOptions, overrides: HashMap<String, CompressionOptions>) {
+pub fn start_jobs(app: AppHandle, manager: State<'_, JobManager>, options: CompressionOptions, overrides: HashMap<String, CompressionOptions>, video_options: VideoOptions, video_overrides: HashMap<String, VideoOptions>) {
     let mut state = manager.0.lock().unwrap();
     let queued = state.jobs.values().filter(|job| job.status == JobStatus::Queued).cloned().collect::<Vec<_>>();
     let batch = queued.into_iter().map(|mut job| {
@@ -234,13 +281,14 @@ pub fn start_jobs(app: AppHandle, manager: State<'_, JobManager>, options: Compr
         state.jobs.insert(job.id.clone(), job.clone());
         emit_update(&app, &job);
         let job_options = options_for_job(&job.id, &options, &overrides);
-        (job, token, job_options)
+        let job_video_options = video_overrides.get(&job.id).unwrap_or(&video_options).clone();
+        (job, token, job_options, job_video_options)
     }).collect::<Vec<_>>();
     drop(state);
 
     let app_for_batch = app.clone();
     std::thread::spawn(move || {
-        for (mut running, token, job_options) in batch {
+        for (mut running, token, job_options, video_options) in batch {
             if token.is_cancelled() {
                 running.status = JobStatus::Cancelled;
                 running.progress = 0;
@@ -250,23 +298,40 @@ pub fn start_jobs(app: AppHandle, manager: State<'_, JobManager>, options: Compr
             running.status = JobStatus::Compressing;
             running.progress = 0;
             update_job(&app_for_batch, &running);
-            let job_for_validation = running.clone();
-            match compress_image(&running, &job_options, &token, || {
-                let mut validating = job_for_validation.clone();
-                validating.status = JobStatus::Validating;
-                validating.progress = progress_for_status(validating.status);
-                update_job(&app_for_batch, &validating);
-            }) {
+            let validation_job = running.clone();
+            let result = if running.media_type == MediaType::Video {
+                compress_video(&running, &video_options, &video_helper_path(&app_for_batch), &token, |progress| {
+                    let mut updated = running.clone();
+                    updated.progress = progress;
+                    update_job(&app_for_batch, &updated);
+                }, || {
+                    let mut validating = validation_job.clone();
+                    validating.status = JobStatus::Validating;
+                    validating.progress = 96;
+                    update_job(&app_for_batch, &validating);
+                })
+            } else {
+                compress_image(&running, &job_options, &token, || {
+                    let mut validating = validation_job.clone();
+                    validating.status = JobStatus::Validating;
+                    validating.progress = progress_for_status(validating.status);
+                    update_job(&app_for_batch, &validating);
+                }).map_err(|error| error.to_string())
+            };
+            match result {
                 Ok(result) => {
                     running.status = result.status;
                     running.progress = progress_for_status(result.status);
                     running.output_path = result.output_path.map(|path| path.to_string_lossy().into_owned());
                     running.output_bytes = result.output_bytes;
                     running.skip_reason = result.skip_reason;
+                    if running.media_type == MediaType::Video {
+                        if let Some(path) = &running.output_path { let _ = app_for_batch.asset_protocol_scope().allow_file(path); }
+                    }
                     update_job(&app_for_batch, &running);
                 }
-                Err(CompressionError::Cancelled) => { running.status = JobStatus::Cancelled; running.progress = 0; update_job(&app_for_batch, &running); }
-                Err(error) => { running.status = JobStatus::Failed; running.error = Some(error.to_string()); update_job(&app_for_batch, &running); }
+                Err(error) if token.is_cancelled() || error == "__cancelled__" => { running.status = JobStatus::Cancelled; running.progress = 0; update_job(&app_for_batch, &running); }
+                Err(error) => { running.status = JobStatus::Failed; running.error = Some(error); update_job(&app_for_batch, &running); }
             }
         }
     });
@@ -323,13 +388,29 @@ pub fn cancel_job(app: AppHandle, manager: State<'_, JobManager>, id: String) ->
 }
 
 #[tauri::command]
-pub fn remove_job(manager: State<'_, JobManager>, id: String) -> Result<(), String> {
-    manager.remove(&id)
+pub fn remove_job(app: AppHandle, manager: State<'_, JobManager>, id: String) -> Result<(), String> {
+    let paths = {
+        let state = manager.0.lock().map_err(|_| "無法存取任務清單".to_string())?;
+        let job = state.jobs.get(&id).ok_or_else(|| "找不到此工作".to_string())?;
+        if is_active(job.status) { return Err("請先取消進行中的工作".into()); }
+        (job.media_type == MediaType::Video).then(|| std::iter::once(job.input_path.clone()).chain(job.output_path.clone()).collect::<Vec<_>>())
+    };
+    manager.remove(&id)?;
+    if let Some(paths) = paths { for path in paths { let _ = app.asset_protocol_scope().forbid_file(path); } }
+    Ok(())
 }
 
 #[tauri::command]
-pub fn clear_jobs(manager: State<'_, JobManager>) -> Result<(), String> {
-    manager.clear()
+pub fn clear_jobs(app: AppHandle, manager: State<'_, JobManager>) -> Result<(), String> {
+    let paths = {
+        let state = manager.0.lock().map_err(|_| "無法存取任務清單".to_string())?;
+        if state.jobs.values().any(|job| is_active(job.status)) { return Err("請先取消進行中的工作".into()); }
+        state.jobs.values().filter(|job| job.media_type == MediaType::Video)
+            .flat_map(|job| std::iter::once(job.input_path.clone()).chain(job.output_path.clone())).collect::<Vec<_>>()
+    };
+    manager.clear()?;
+    for path in paths { let _ = app.asset_protocol_scope().forbid_file(path); }
+    Ok(())
 }
 
 fn new_job(input_path: String, info: Option<MediaInfo>, error: Option<String>) -> CompressionJob {
@@ -346,10 +427,13 @@ fn new_job(input_path: String, info: Option<MediaInfo>, error: Option<String>) -
         output_path: None,
         thumbnail: None,
         file_name,
+        media_type: match extension.as_str() { "mp4" | "mov" | "m4v" => MediaType::Video, _ => MediaType::Image },
         extension,
-        media_type: "image".into(),
         width: info.as_ref().map(|info| info.width).unwrap_or_default(),
         height: info.as_ref().map(|info| info.height).unwrap_or_default(),
+        duration_ms: None,
+        codec: None,
+        audio_codec: None,
         status: if error.is_some() { JobStatus::Failed } else { JobStatus::Queued },
         progress: 0,
         original_bytes: info.map(|info| info.original_bytes).unwrap_or_default(),
@@ -386,9 +470,9 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{JobManager, admit_paths, apply_analysis, apply_job_update, claim_analysis_worker, collect_revealable_outputs, new_job, options_for_job, pending_job, progress_for_status, retry_failed_job};
+    use super::{JobManager, admit_paths, apply_analysis, apply_job_update, claim_analysis_worker, collect_revealable_outputs, new_job, options_for_job, pending_job, progress_for_status, resolve_video_preview_path, retry_failed_job};
     use std::collections::HashMap;
-    use crate::engine::{analyzer::MediaInfo, images::{CompressionMode, CompressionOptions, JobStatus}};
+    use crate::engine::{analyzer::MediaInfo, images::{CompressionMode, CompressionOptions, JobStatus, MediaType}};
 
     #[test]
     fn retry_job_clears_failure_and_output_before_analysis() {
@@ -509,6 +593,49 @@ mod tests {
         assert!(jobs[1].error.as_deref().unwrap().contains("支援"));
         assert_eq!(jobs[2].status, JobStatus::Failed);
         assert!(jobs[2].error.is_some());
+    }
+
+    #[test]
+    fn admits_video_files_without_the_image_size_limit() {
+        let dir = tempdir().unwrap();
+        let video = dir.path().join("long.mov");
+        let file = fs::File::create(&video).unwrap();
+        file.set_len(crate::engine::analyzer::MAX_INPUT_BYTES + 1).unwrap();
+        let mut known = HashSet::new();
+        let jobs = admit_paths(vec![video.to_string_lossy().into()], &mut known);
+        assert_eq!(jobs[0].status, JobStatus::Analyzing);
+        assert_eq!(jobs[0].media_type, MediaType::Video);
+        assert_eq!(jobs[0].original_bytes, crate::engine::analyzer::MAX_INPUT_BYTES + 1);
+    }
+
+    #[test]
+    fn mixed_admission_routes_image_and_video_independently() {
+        let dir = tempdir().unwrap();
+        let image = dir.path().join("photo.jpg");
+        let video = dir.path().join("clip.m4v");
+        fs::write(&image, b"image").unwrap();
+        fs::write(&video, b"video").unwrap();
+        let mut known = HashSet::new();
+        let jobs = admit_paths(vec![image.to_string_lossy().into(), video.to_string_lossy().into()], &mut known);
+        assert_eq!(jobs.iter().map(|job| job.media_type).collect::<Vec<_>>(), vec![MediaType::Image, MediaType::Video]);
+        assert!(jobs.iter().all(|job| job.status == JobStatus::Analyzing));
+    }
+
+    #[test]
+    fn video_preview_resolves_only_paths_owned_by_a_video_job() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("clip.mov");
+        let output = dir.path().join("clip.squeezed.mp4");
+        fs::write(&source, b"source").unwrap();
+        fs::write(&output, b"output").unwrap();
+        let mut video = new_job(source.to_string_lossy().into(), None, None);
+        video.media_type = MediaType::Video;
+        video.output_path = Some(output.to_string_lossy().into());
+        let jobs = HashMap::from([(video.id.clone(), video.clone())]);
+
+        assert_eq!(resolve_video_preview_path(&jobs, &video.id, false).unwrap(), source.to_string_lossy());
+        assert_eq!(resolve_video_preview_path(&jobs, &video.id, true).unwrap(), output.to_string_lossy());
+        assert!(resolve_video_preview_path(&jobs, "unknown", false).unwrap_err().contains("找不到"));
     }
 
     #[test]
