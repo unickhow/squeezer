@@ -223,7 +223,7 @@ fn collect_revealable_outputs(jobs: &HashMap<String, CompressionJob>, ids: &[Str
 }
 
 #[tauri::command]
-pub fn start_jobs(app: AppHandle, manager: State<'_, JobManager>, options: CompressionOptions) {
+pub fn start_jobs(app: AppHandle, manager: State<'_, JobManager>, options: CompressionOptions, overrides: HashMap<String, CompressionOptions>) {
     let mut state = manager.0.lock().unwrap();
     let queued = state.jobs.values().filter(|job| job.status == JobStatus::Queued).cloned().collect::<Vec<_>>();
     let batch = queued.into_iter().map(|mut job| {
@@ -233,13 +233,14 @@ pub fn start_jobs(app: AppHandle, manager: State<'_, JobManager>, options: Compr
         job.progress = 0;
         state.jobs.insert(job.id.clone(), job.clone());
         emit_update(&app, &job);
-        (job, token)
+        let job_options = options_for_job(&job.id, &options, &overrides);
+        (job, token, job_options)
     }).collect::<Vec<_>>();
     drop(state);
 
     let app_for_batch = app.clone();
     std::thread::spawn(move || {
-        for (mut running, token) in batch {
+        for (mut running, token, job_options) in batch {
             if token.is_cancelled() {
                 running.status = JobStatus::Cancelled;
                 running.progress = 0;
@@ -250,7 +251,7 @@ pub fn start_jobs(app: AppHandle, manager: State<'_, JobManager>, options: Compr
             running.progress = 0;
             update_job(&app_for_batch, &running);
             let job_for_validation = running.clone();
-            match compress_image(&running, &options, &token, || {
+            match compress_image(&running, &job_options, &token, || {
                 let mut validating = job_for_validation.clone();
                 validating.status = JobStatus::Validating;
                 validating.progress = progress_for_status(validating.status);
@@ -268,6 +269,10 @@ pub fn start_jobs(app: AppHandle, manager: State<'_, JobManager>, options: Compr
             }
         }
     });
+}
+
+fn options_for_job(job_id: &str, defaults: &CompressionOptions, overrides: &HashMap<String, CompressionOptions>) -> CompressionOptions {
+    overrides.get(job_id).unwrap_or(defaults).clone()
 }
 
 #[tauri::command]
@@ -347,9 +352,28 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{JobManager, admit_paths, apply_analysis, apply_job_update, claim_analysis_worker, collect_revealable_outputs, new_job, pending_job, progress_for_status};
+    use super::{JobManager, admit_paths, apply_analysis, apply_job_update, claim_analysis_worker, collect_revealable_outputs, new_job, options_for_job, pending_job, progress_for_status};
     use std::collections::HashMap;
-    use crate::engine::{analyzer::MediaInfo, images::JobStatus};
+    use crate::engine::{analyzer::MediaInfo, images::{CompressionMode, CompressionOptions, JobStatus}};
+
+    #[test]
+    fn queued_job_uses_override_when_present() {
+        let defaults = CompressionOptions::default();
+        let override_options = CompressionOptions { mode: CompressionMode::Small, png_lossy: true, ..Default::default() };
+        let overrides = HashMap::from([("one".to_string(), override_options)]);
+        let chosen = options_for_job("one", &defaults, &overrides);
+        assert_eq!(chosen.mode, CompressionMode::Small);
+        assert!(chosen.png_lossy);
+    }
+
+    #[test]
+    fn queued_job_falls_back_to_batch_options() {
+        let defaults = CompressionOptions { mode: CompressionMode::Balanced, png_lossy: true, ..Default::default() };
+        let overrides = HashMap::from([("other".to_string(), CompressionOptions::default())]);
+        let chosen = options_for_job("one", &defaults, &overrides);
+        assert_eq!(chosen.mode, CompressionMode::Balanced);
+        assert!(chosen.png_lossy);
+    }
 
     #[test]
     fn invalid_image_becomes_failed_job_without_blocking_other_files() {

@@ -289,3 +289,15 @@ button { font: inherit; }
   .png-lossy-toggle { min-height: 48px; margin-top: 6px; }
   .setting-note { min-height: 20px; }
 }
+.file-settings { margin-top: 13px; padding: 11px; border: 1px solid #e5e3db; border-radius: 5px; background: #f7f6f2; }
+.file-settings-heading { min-height: 25px; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.file-settings-heading b,.locked-settings b { color: #46463f; font-size: 12px; font-weight: 600; }
+.reset-override { min-height: 26px; padding: 0 4px; font-size: 11px; white-space: nowrap; }
+.inspector-field { margin-top: 7px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #737269; font-size: 12px; }
+.inspector-field select { max-width: 135px; min-width: 100px; height: 30px; padding: 0 7px; border: 1px solid #d8d6ce; border-radius: 4px; background: #fff; color: #373730; font: inherit; font-size: 12px; }
+.inspector-checkbox { min-height: 32px; display: flex; align-items: center; gap: 7px; color: #494941; font-size: 11px; cursor: pointer; }
+.inspector-checkbox input { width: 15px; height: 15px; accent-color: #ad6241; }
+.inherit-caption { display: block; color: #76756c; font-size: 11px; }
+.override-mark { padding: 2px 4px; border-radius: 3px; background: #f0e5da; color: #8d5135 !important; font: 10px -apple-system, BlinkMacSystemFont, sans-serif !important; }
+.locked-settings { margin-top: 13px; display: flex; flex-direction: column; gap: 4px; color: #77766e; }
+.locked-settings span { font-size: 11px; line-height: 1.4; }
