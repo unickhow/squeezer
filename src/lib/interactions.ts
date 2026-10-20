@@ -3,7 +3,8 @@ import type { CompressionJob, CompressionMode } from "../types";
 const modes: CompressionMode[] = ["lossless", "quality", "balanced", "small"];
 
 export function getPrimaryActionState(queuedCount: number, active: boolean, busy: boolean): { label: string; disabled: boolean } {
-  if (active || busy) return { label: "處理中…", disabled: true };
+  if (busy) return { label: `正在開始 ${queuedCount} 張…`, disabled: true };
+  if (active) return { label: "正在處理…", disabled: true };
   if (queuedCount === 0) return { label: "加入圖片後即可開始", disabled: true };
   return { label: `壓縮 ${queuedCount} 張`, disabled: false };
 }

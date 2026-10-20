@@ -25,7 +25,7 @@ npm run tauri -- build
 - PNG uses `oxipng` lossless optimization by default. An optional lossy mode reduces PNGs to an indexed palette of up to 256 colors while retaining transparency.
 - Outputs are decoded and checked for dimensions; PNG transparency is checked before output placement.
 - Images can be previewed before and after compression.
-- Import feedback distinguishes added, unsupported, and duplicate files; queue and preview states update in place, with motion reduced when the system preference requests it.
+- The main workflow follows file import, compression options, and batch start in that order. Import and per-file result changes receive local feedback, and motion follows the system reduced-motion preference.
 - Inputs are limited to 512 MiB, 20,000 pixels per edge, and 100 megapixels to bound decode memory use.
 - Files are processed sequentially. Outputs that save less than 10% are skipped by default.
 

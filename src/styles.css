@@ -107,17 +107,22 @@ button { font: inherit; }
 .thumbnail-button:focus-visible { outline: 2px solid #914a30; outline-offset: 2px; }
 .job-thumbnail { display: block; width: 100%; height: 100%; object-fit: cover; }
 
-/* The workspace stays interactive while its first paint settles into place. */
-.topbar { animation: app-entry-settle 160ms var(--motion-ease) both; }
-.workspace { animation: app-entry-settle 160ms var(--motion-ease) both; }
-.bottom-bar { animation: app-entry-settle 160ms var(--motion-ease) both; }
+/* A brief, visible brand cue leads into the immediately usable workflow. */
+.topbar { animation: none; }
+.brand-mark { animation: brand-mark-arrive 280ms var(--motion-ease) both; }
+.brand-name { animation: brand-name-arrive 260ms var(--motion-ease) 35ms both; }
+.topbar-meta { animation: brand-name-arrive 240ms var(--motion-ease) 55ms both; }
+.workspace { animation: app-entry-settle 280ms var(--motion-ease) 25ms both; }
+.bottom-bar { animation: app-entry-settle 260ms var(--motion-ease) 60ms both; }
 .dropzone,.button,.mode-card,.png-lossy-toggle { transition-duration: var(--motion-micro); transition-timing-function: var(--motion-ease); }
 .preview-overlay { animation-duration: var(--motion-view); animation-timing-function: var(--motion-ease); }
 .preview-dialog { animation-duration: var(--motion-view); animation-timing-function: var(--motion-ease); }
-@keyframes app-entry-settle { from { opacity: .86; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes brand-mark-arrive { 0% { opacity: .25; transform: translateY(-5px) scale(.68) rotate(-22deg); box-shadow: 0 0 0 5px #bd653f30; } 72% { opacity: 1; transform: translateY(1px) scale(1.04) rotate(-7deg); box-shadow: 0 0 0 1px #bd653f10; } 100% { transform: translateY(0) scale(1) rotate(-9deg); box-shadow: none; } }
+@keyframes brand-name-arrive { from { opacity: .25; transform: translateX(-7px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes app-entry-settle { from { opacity: .48; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) {
   :root { --motion-micro: 0ms; --motion-view: 0ms; --motion-stagger-step: 0ms; }
-  .topbar,.workspace,.bottom-bar { animation: none !important; }
+  .topbar,.brand-mark,.brand-name,.topbar-meta,.workspace,.bottom-bar { animation: none !important; }
 }
 .job-row:nth-child(2),.job-row:nth-child(3),.job-row:nth-child(4) { animation: none; }
 .job-row.arriving { animation: row-arrive 180ms var(--arrival-delay, 0ms) var(--motion-ease) both; }
@@ -134,6 +139,7 @@ button { font: inherit; }
 .job-status.skipped { color: #77715e; }
 .job-status.cancelled { color: #696a70; }
 .job-status.cancelled svg,.job-status.skipped svg { flex: 0 0 auto; }
+.job-status { transition: color var(--motion-micro) var(--motion-ease); }
 .job-row:has(.job-status.failed) { background: #fff8f5; }
 .job-row:has(.job-status.cancelled) { background: #f6f6f5; }
 .mode-grid { --mode-gap: 9px; position: relative; gap: var(--mode-gap); }
@@ -153,6 +159,17 @@ button { font: inherit; }
 .job-row.active-validating::before { background: #6a8192; }
 .preview-loading { grid-column: 1 / -1; display: inline-flex; align-items: center; gap: 6px; margin: -2px 0 8px 57px; color: #876945; font-size: 11px; }
 .action-error { display: block; }
+.job-row.result-completed { animation: row-result-completed 320ms var(--motion-ease) both; }
+.job-row.result-skipped { animation: row-result-skipped 320ms var(--motion-ease) both; }
+.job-row.result-failed { animation: row-result-failed 320ms var(--motion-ease) both; }
+.job-row.result-cancelled { animation: row-result-cancelled 320ms var(--motion-ease) both; }
+@keyframes row-result-completed { from { background-color: #e4eee1; box-shadow: inset 3px 0 #6f8b69; } to { background-color: transparent; box-shadow: inset 0 0 transparent; } }
+@keyframes row-result-skipped { from { background-color: #f1eee5; box-shadow: inset 3px 0 #93876b; } to { background-color: transparent; box-shadow: inset 0 0 transparent; } }
+@keyframes row-result-failed { from { background-color: #f7e4df; box-shadow: inset 3px 0 #aa5542; } to { background-color: transparent; box-shadow: inset 0 0 transparent; } }
+@keyframes row-result-cancelled { from { background-color: #e8e8e8; box-shadow: inset 3px 0 #73736d; } to { background-color: transparent; box-shadow: inset 0 0 transparent; } }
+.button-primary.is-busy:disabled { background: #41423a; color: #fff; }
+.button-primary.is-busy:disabled .button-arrow { color: #e2aa8e; }
+.mode-grid::before { height: 3px; box-shadow: 0 1px 4px #ad624133; }
 .preview-overlay.is-closing { animation: preview-fade-out 150ms var(--motion-ease) both; }
 .preview-overlay.is-closing .preview-dialog { animation: preview-exit 150ms var(--motion-ease) both; }
 @keyframes preview-fade-out { to { opacity: 0; } }

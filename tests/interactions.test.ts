@@ -26,8 +26,8 @@ function job(overrides: Partial<CompressionJob> = {}): CompressionJob {
 test("primary action describes count and busy state", () => {
   assert.deepEqual(getPrimaryActionState(1, false, false), { label: "壓縮 1 張", disabled: false });
   assert.deepEqual(getPrimaryActionState(3, false, false), { label: "壓縮 3 張", disabled: false });
-  assert.deepEqual(getPrimaryActionState(2, true, false), { label: "處理中…", disabled: true });
-  assert.deepEqual(getPrimaryActionState(2, false, true), { label: "處理中…", disabled: true });
+  assert.deepEqual(getPrimaryActionState(2, true, false), { label: "正在處理…", disabled: true });
+  assert.deepEqual(getPrimaryActionState(2, false, true), { label: "正在開始 2 張…", disabled: true });
   assert.deepEqual(getPrimaryActionState(0, false, false), { label: "加入圖片後即可開始", disabled: true });
 });
 

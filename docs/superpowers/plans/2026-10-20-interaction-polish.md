@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Keep the full import-to-result journey in the existing main view; do not add a blocking splash screen or mandatory onboarding.
-- Make the main view actionable on first paint; the one-time launch entrance animation is approximately 160 ms and never gates input.
+- Make the main view actionable on first paint; a visible brand cue leads into the workflow over approximately 320 ms and never gates input.
 - Keep micro-interactions within 120–180 ms and view transitions within 180–240 ms as starting values; honor `prefers-reduced-motion` by removing movement and stagger.
 - Never invent file progress, completion estimates, savings, or ETA; display only confirmed job states and measured output sizes.
 - Preserve row order, scroll position, selected compression mode, and keyboard focus during asynchronous updates.
@@ -45,7 +45,7 @@ Define the exact CSS custom properties `--motion-micro: 150ms`, `--motion-view: 
 
 - [ ] **Step 2: Add the first-entry animation**
 
-Animate brand mark and main content once using a small opacity/position settle with a total duration near 160 ms and no delay that blocks interaction. Do not animate on every React render or when returning from the preview.
+Animate the brand mark first, then settle the main content with a visible but restrained opacity/position change. Keep the full sequence under 350 ms with no delay that blocks interaction. Do not animate on every React render or when returning from the preview.
 
 - [ ] **Step 3: Respect reduced motion**
 
