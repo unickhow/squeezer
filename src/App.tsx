@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ArrowDownToLine, ArrowUpRight, Ban, Check, CircleAlert, Eye, FileImage, FolderOpen, Image as ImageIcon, LoaderCircle, Minus, Plus, ShieldCheck, Sparkles, X } from "lucide-react";
 import { addFiles, cancelJob, clearJobs, removeJob as removeQueuedJob, revealOutputs, startJobs, subscribeJobs } from "./lib/tauri";
 import { calculateSavings, formatBytes } from "./lib/format";
-import { getAdmissionAnnouncement, getJobActionLabel, getNextCompressionMode, getPrimaryActionState, getQueueArrivalDelay, getResultActionLabel, getResultCounts, getRevealableJobIds, getStatusAnnouncement, mergeAdmissionJobs } from "./lib/interactions";
+import { getActionErrorMessage, getAdmissionAnnouncement, getJobActionLabel, getNextCompressionMode, getPrimaryActionState, getQueueArrivalDelay, getResultActionLabel, getResultCounts, getRevealableJobIds, getStatusAnnouncement, mergeAdmissionJobs } from "./lib/interactions";
 import type { CompressionJob, CompressionMode, CompressionOptions, JobStatus } from "./types";
 
 const modes: { id: CompressionMode; title: string; detail: string; icon: string }[] = [
@@ -29,7 +29,9 @@ function App() {
   const [arrivalDelays, setArrivalDelays] = useState<Map<string, number>>(() => new Map());
   const [cancelRequested, setCancelRequested] = useState<Set<string>>(() => new Set());
   const [preview, setPreview] = useState<{ job: CompressionJob; before: string; after?: string } | null>(null);
+  const [previewClosing, setPreviewClosing] = useState(false);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<{ jobId: string; message: string } | null>(null);
   const previewRef = useRef<HTMLElement>(null);
   const previewRequest = useRef(0);
   const previewRestoreFocus = useRef<HTMLElement | null>(null);
@@ -91,7 +93,7 @@ function App() {
     const previousFocus = previewRestoreFocus.current ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     previewRef.current?.focus();
     const handleDialogKeys = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { setPreview(null); return; }
+      if (event.key === "Escape") { closePreview(); return; }
       if (event.key !== "Tab") return;
       const buttons = previewRef.current?.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])");
       if (!buttons?.length) return;
@@ -144,6 +146,8 @@ function App() {
   }
   async function showPreview(job: CompressionJob, trigger: HTMLElement) {
     if (previewPendingId.current === job.id) return;
+    setActionError(null);
+    setPreviewClosing(false);
     previewRestoreFocus.current = trigger;
     const request = ++previewRequest.current;
     previewPendingId.current = job.id;
@@ -154,12 +158,18 @@ function App() {
         job.outputPath ? invoke<string>("image_preview", { id: job.id, after: true }) : Promise.resolve(undefined),
       ]);
       if (request === previewRequest.current && !removedPreviewJobs.current.has(job.id)) setPreview({ job, before, after });
-    } catch (error) { if (request === previewRequest.current) setNotice(String(error)); }
+    } catch (error) { if (request === previewRequest.current) setActionError({ jobId: job.id, message: getActionErrorMessage("preview", job.fileName, String(error)) }); }
     finally { if (request === previewRequest.current) { previewPendingId.current = null; setPreviewingId(null); } }
   }
   async function reveal(ids: string[]) {
+    const source = jobs.find((job) => job.id === ids[0]);
+    setActionError(null);
     try { await revealOutputs(ids); }
-    catch (error) { setNotice(String(error)); }
+    catch (error) { if (source) setActionError({ jobId: source.id, message: getActionErrorMessage("reveal", source.fileName, String(error)) }); }
+  }
+
+  function closePreview() {
+    if (preview) setPreviewClosing(true);
   }
 
   return <main className="app-shell">
@@ -180,13 +190,13 @@ function App() {
         {jobs.length === 0 ? <div className="empty-queue"><span className="empty-icon"><FileImage size={18} /></span><span><b>清單還是空的</b><small>加入 JPEG 或 PNG，就可以開始整理空間。</small></span></div> : <div className="job-table"><div className="table-head"><span>檔案</span><span>尺寸</span><span>原始大小</span><span>狀態</span><span /></div>{jobs.map((job) => <article className={`job-row ${arrivalDelays.has(job.id) ? "arriving" : ""} ${["analyzing", "compressing", "validating"].includes(job.status) ? `active-${job.status}` : ""}`} style={{ "--arrival-delay": `${arrivalDelays.get(job.id) ?? 0}ms` } as CSSProperties} onAnimationEnd={() => setArrivalDelays((current) => { const next = new Map(current); next.delete(job.id); return next; })} key={job.id}>
           <div className="job-file">{job.thumbnail ? <button className="thumbnail-button" title={`放大預覽 ${job.fileName}`} aria-label={`放大預覽 ${job.fileName}`} onClick={(event) => void showPreview(job, event.currentTarget)}><img className="job-thumbnail" src={job.thumbnail} alt="" /></button> : <span className={`file-badge ${job.extension === "png" ? "png" : "jpg"}`}>{job.extension === "png" ? "PNG" : "JPG"}</span>}<span className="job-name-wrap"><b title={job.fileName}>{job.fileName}</b><small>{job.inputPath.split(/[\\/]/).slice(-2, -1)[0] ?? "本機檔案"}</small></span></div><span className="job-dimensions">{job.width} × {job.height}</span><span className="job-size">{formatBytes(job.originalBytes)}</span>
           <span className={`job-status ${job.status}`} aria-label={`${job.fileName}：${cancelRequested.has(job.id) ? "正在安全取消" : statusLabel(job.status)}`}>{["analyzing", "compressing", "validating"].includes(job.status) ? <LoaderCircle className="spin" size={13} /> : job.status === "completed" ? <Check size={13} /> : job.status === "failed" ? <CircleAlert size={13} /> : job.status === "skipped" ? <Minus size={13} /> : job.status === "cancelled" ? <Ban size={13} /> : null}{cancelRequested.has(job.id) ? "正在安全取消…" : statusLabel(job.status)}{job.status === "completed" && job.outputBytes !== undefined && <small>−{Math.max(0, Math.round((1 - job.outputBytes / job.originalBytes) * 100))}%</small>}</span><button className="row-preview" title={`預覽 ${job.fileName}`} onClick={(event) => void showPreview(job, event.currentTarget)} aria-label={previewingId === job.id ? `正在準備 ${job.fileName} 預覽` : `預覽 ${job.fileName}`} disabled={previewingId === job.id}>{previewingId === job.id ? <LoaderCircle className="spin" size={14} /> : <Eye size={14} />}</button>{job.status === "completed" && job.outputPath && <button className="row-preview" title={`在 Finder 顯示 ${job.fileName}`} onClick={() => void reveal([job.id])} aria-label={`在 Finder 顯示 ${job.fileName}`}><FolderOpen size={14} /></button>}<button className="row-remove" title={getJobActionLabel(job, cancelRequested.has(job.id))} onClick={() => void removeJob(job.id)} aria-label={getJobActionLabel(job, cancelRequested.has(job.id))}><X size={15} /></button>
-          {job.error && <span className="job-error">{job.error}</span>}{["compressing", "analyzing", "validating"].includes(job.status) && <span className="progress-track" role="progressbar" aria-label={`${job.fileName}，${statusLabel(job.status)}`}><span className="indeterminate" /></span>}
+          {previewingId === job.id && <span className="preview-loading" role="status" aria-live="polite"><LoaderCircle className="spin" size={12} />正在準備預覽…</span>}{job.error && <span className="job-error">{job.error}</span>}{actionError?.jobId === job.id && <span className="job-error action-error" role="alert">{actionError.message}</span>}{["compressing", "analyzing", "validating"].includes(job.status) && <span className="progress-track" role="progressbar" aria-label={`${job.fileName}，${statusLabel(job.status)}`}><span className="indeterminate" /></span>}
         </article>)}</div>}{notice && <div className="notice" role="alert" aria-live="assertive"><CircleAlert size={15} />{notice}</div>}
       </section>
     </div>
     <footer className="bottom-bar"><div className="bottom-summary">{jobs.length > 0 ? <><span className="summary-number">{jobs.length}</span><span>{summary}<small>{allFinished ? `完成 ${resultCounts.completed} · 略過 ${resultCounts.skipped} · 失敗 ${resultCounts.failed} · 取消 ${resultCounts.cancelled}` : "原始檔將保留不動"}</small></span></> : <><span className="bottom-lock"><ShieldCheck size={17} /></span><span>安全、私密、完全離線<small>不會覆寫原始檔案</small></span></>}</div><div className="bottom-result">{allFinished && savings > 0 ? <><span>總共省下</span><strong>{formatBytes(savings)}</strong><small>{savedPercent}%</small></> : allFinished ? <><span>容量變化</span><strong>未減少</strong><small>保留原始品質</small></> : <><span>可用空間</span><strong>—</strong><small>完成後計算</small></>}</div><button className="button button-primary" disabled={primaryAction.disabled} onClick={() => void compressAll()}>{activeCount > 0 || busy ? <LoaderCircle className="spin" size={16} /> : <ArrowDownToLine size={16} />}{primaryAction.label}<ArrowUpRight size={14} className="button-arrow" /></button></footer>
     <div className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</div>
-    {preview && <div className="preview-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(null); }}><section ref={previewRef} tabIndex={-1} className="preview-dialog" role="dialog" aria-modal="true" aria-label={`${preview.job.fileName} 前後對照`}><header className="preview-header"><div><span className="section-index">IMAGE COMPARISON</span><h2>{preview.job.fileName}</h2></div><button className="icon-button" title="關閉預覽" onClick={() => setPreview(null)} aria-label="關閉預覽"><X size={17} /></button></header><div className="preview-grid"><figure><div className="preview-image"><img src={preview.before} alt={`${preview.job.fileName} 原始圖片`} /></div><figcaption><b>Before</b><span>{preview.job.fileName} · {formatBytes(preview.job.originalBytes)}</span></figcaption></figure><figure><div className="preview-image">{preview.after ? <img src={preview.after} alt={`${preview.job.fileName} 壓縮後圖片`} /> : <div className="preview-empty">{preview.job.status === "failed" ? "這個檔案尚未產生輸出" : "完成壓縮後即可比較"}</div>}</div><figcaption><b>After</b><span>{preview.job.outputBytes !== undefined ? `${preview.job.fileName} · ${formatBytes(preview.job.outputBytes)}` : statusLabel(preview.job.status)}</span></figcaption></figure></div></section></div>}
+    {preview && <div className={`preview-overlay ${previewClosing ? "is-closing" : ""}`} role="presentation" onAnimationEnd={(event) => { if (event.target === event.currentTarget && previewClosing) setPreview(null); }} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreview(); }}><section ref={previewRef} tabIndex={-1} className="preview-dialog" role="dialog" aria-modal="true" aria-label={`${preview.job.fileName} 前後對照`}><header className="preview-header"><div><span className="section-index">IMAGE COMPARISON</span><h2>{preview.job.fileName}</h2></div><button className="icon-button" title="關閉預覽" onClick={closePreview} aria-label="關閉預覽"><X size={17} /></button></header><div className="preview-grid"><figure><div className="preview-image"><img src={preview.before} alt={`${preview.job.fileName} 原始圖片`} /></div><figcaption><b>Before</b><span>{preview.job.fileName} · {formatBytes(preview.job.originalBytes)}</span></figcaption></figure><figure><div className="preview-image">{preview.after ? <img src={preview.after} alt={`${preview.job.fileName} 壓縮後圖片`} /> : <div className="preview-empty">{preview.job.status === "failed" ? "這個檔案尚未產生輸出" : "完成壓縮後即可比較"}</div>}</div><figcaption><b>After</b><span>{preview.job.outputBytes !== undefined ? `${preview.job.fileName} · ${formatBytes(preview.job.outputBytes)}` : statusLabel(preview.job.status)}</span></figcaption></figure></div></section></div>}
   </main>;
 }
 

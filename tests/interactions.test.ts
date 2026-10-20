@@ -5,6 +5,7 @@ import {
   getJobActionLabel,
   getQueueArrivalDelay,
   getAdmissionAnnouncement,
+  getActionErrorMessage,
   getNextCompressionMode,
   getPrimaryActionState,
   getResultActionLabel,
@@ -84,4 +85,12 @@ test("admission announcement summarizes added, invalid and duplicate files", () 
   assert.equal(getAdmissionAnnouncement(3, 0, 0), "選取的檔案都已在清單中");
   assert.equal(getAdmissionAnnouncement(2, 2, 0), "已加入 2 個檔案");
   assert.equal(getAdmissionAnnouncement(3, 2, 1), "已加入 1 個；1 個無法使用；1 個重複檔案略過");
+});
+
+test("action errors name the affected file and recovery action", () => {
+  assert.match(getActionErrorMessage("preview", "photo.png", "decode error"), /photo\.png/);
+  assert.match(getActionErrorMessage("preview", "photo.png", "decode error"), /預覽/);
+  assert.match(getActionErrorMessage("preview", "photo.png", "decode error"), /decode error/);
+  assert.match(getActionErrorMessage("reveal", "photo.png", "permission denied"), /Finder/);
+  assert.match(getActionErrorMessage("reveal", "photo.png", "permission denied"), /photo\.png/);
 });

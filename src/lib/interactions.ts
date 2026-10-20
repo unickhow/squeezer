@@ -73,3 +73,8 @@ export function getAdmissionAnnouncement(requestedCount: number, returnedCount: 
   ].filter(Boolean);
   return parts.join("；");
 }
+
+export function getActionErrorMessage(action: "preview" | "reveal", fileName: string, detail: string): string {
+  const actionLabel = action === "preview" ? "預覽" : "在 Finder 顯示";
+  return `無法${actionLabel} ${fileName}：${detail}`;
+}
