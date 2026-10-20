@@ -43,7 +43,14 @@ export function filterQueueJobs(jobs: CompressionJob[], query: string): Compress
   const normalizedQuery = query.trim().toLocaleLowerCase();
   if (!normalizedQuery) return jobs;
   return jobs.filter((job) => job.fileName.toLocaleLowerCase().includes(normalizedQuery)
-    || parentPath(job.inputPath).toLocaleLowerCase().includes(normalizedQuery));
+    || (job.inputPath.split(/[\\/]/).slice(-2, -1)[0] ?? "").toLocaleLowerCase().includes(normalizedQuery));
+}
+
+export function getAdjacentQueueJobId(jobs: CompressionJob[], currentId: string, key: "ArrowUp" | "ArrowDown"): string | null {
+  const index = jobs.findIndex((job) => job.id === currentId);
+  if (index < 0) return jobs[0]?.id ?? null;
+  const nextIndex = Math.max(0, Math.min(jobs.length - 1, index + (key === "ArrowDown" ? 1 : -1)));
+  return jobs[nextIndex]?.id ?? null;
 }
 
 export function getEffectiveOptions(jobId: string, defaults: CompressionOptions, overrides: Record<string, CompressionOptions>): CompressionOptions {

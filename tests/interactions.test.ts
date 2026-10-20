@@ -16,6 +16,7 @@ import {
   filterQueueJobs,
   getEffectiveOptions,
   getOverrideAnnouncement,
+  getAdjacentQueueJobId,
 } from "../src/lib/interactions.ts";
 import type { CompressionJob, CompressionOptions } from "../src/types.ts";
 
@@ -36,8 +37,18 @@ test("queue search filters names and parent folders without mutating jobs", () =
   assert.deepEqual(filterQueueJobs(jobs, ""), jobs);
   assert.deepEqual(filterQueueJobs(jobs, "COAST"), [jobs[0]]);
   assert.deepEqual(filterQueueJobs(jobs, "studio"), [jobs[1]]);
+  assert.deepEqual(filterQueueJobs(jobs, "users"), []);
   assert.deepEqual(filterQueueJobs(jobs, "missing"), []);
   assert.deepEqual(jobs, before);
+});
+
+test("queue arrow navigation stays within the visible rows", () => {
+  const jobs = [job({ id: "one" }), job({ id: "two" }), job({ id: "three" })];
+  assert.equal(getAdjacentQueueJobId(jobs, "two", "ArrowDown"), "three");
+  assert.equal(getAdjacentQueueJobId(jobs, "two", "ArrowUp"), "one");
+  assert.equal(getAdjacentQueueJobId(jobs, "one", "ArrowUp"), "one");
+  assert.equal(getAdjacentQueueJobId(jobs, "three", "ArrowDown"), "three");
+  assert.equal(getAdjacentQueueJobId(jobs.slice(1), "two", "ArrowDown"), "three");
 });
 
 test("effective options use a per-file override or batch default", () => {

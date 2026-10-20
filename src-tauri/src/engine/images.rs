@@ -53,6 +53,7 @@ pub struct CompressionJob {
     pub original_bytes: u64,
     pub output_bytes: Option<u64>,
     pub error: Option<String>,
+    pub skip_reason: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -80,6 +81,7 @@ pub struct CompressionResult {
     pub status: JobStatus,
     pub output_path: Option<PathBuf>,
     pub output_bytes: Option<u64>,
+    pub skip_reason: Option<String>,
 }
 
 pub fn compress_image<F>(
@@ -93,7 +95,7 @@ where F: FnOnce() {
     let input = Path::new(&job.input_path);
     if job.extension == "jpeg" || job.extension == "jpg" {
         if options.mode == CompressionMode::Lossless {
-            return Ok(CompressionResult { status: JobStatus::Skipped, output_path: None, output_bytes: None });
+            return Ok(CompressionResult { status: JobStatus::Skipped, output_path: None, output_bytes: None, skip_reason: Some("無損模式會保留 JPEG 原檔，未重新編碼。".into()) });
         }
     }
 
@@ -139,11 +141,11 @@ where F: FnOnce() {
     let savings_percent = job.original_bytes.saturating_sub(output_bytes).saturating_mul(100)
         / job.original_bytes.max(1);
     if output_bytes >= job.original_bytes || savings_percent < u64::from(options.min_savings_percent) {
-        return Ok(CompressionResult { status: JobStatus::Skipped, output_path: None, output_bytes: None });
+        return Ok(CompressionResult { status: JobStatus::Skipped, output_path: None, output_bytes: None, skip_reason: Some(format!("節省未達設定門檻（{}%）。", options.min_savings_percent)) });
     }
 
     let committed_path = commit_without_overwrite(&temp_path, input, output_dir)?;
-    Ok(CompressionResult { status: JobStatus::Completed, output_path: Some(committed_path.clone()), output_bytes: Some(fs::metadata(committed_path)?.len()) })
+    Ok(CompressionResult { status: JobStatus::Completed, output_path: Some(committed_path.clone()), output_bytes: Some(fs::metadata(committed_path)?.len()), skip_reason: None })
 }
 
 fn quantize_png(source: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -264,7 +266,7 @@ mod tests {
     }
     fn job(path: &std::path::Path) -> CompressionJob {
         let info = super::super::analyzer::analyze_media(path).unwrap();
-        CompressionJob { id: "test-job".into(), input_path: path.to_string_lossy().into(), output_path: None, thumbnail: None, file_name: info.file_name, extension: info.extension, media_type: "image".into(), width: info.width, height: info.height, status: JobStatus::Queued, progress: 0, original_bytes: info.original_bytes, output_bytes: None, error: None }
+        CompressionJob { id: "test-job".into(), input_path: path.to_string_lossy().into(), output_path: None, thumbnail: None, file_name: info.file_name, extension: info.extension, media_type: "image".into(), width: info.width, height: info.height, status: JobStatus::Queued, progress: 0, original_bytes: info.original_bytes, output_bytes: None, error: None, skip_reason: None }
     }
 
     #[test]
@@ -338,6 +340,7 @@ mod tests {
         let result = compress_image(&job(&input), &options, &CancellationToken::new(), || {}).unwrap();
 
         assert_eq!(result.status, JobStatus::Skipped);
+        assert!(result.skip_reason.as_deref().unwrap().contains("門檻"));
         assert!(result.output_path.is_none());
         assert_eq!(fs::read(&input).unwrap(), original);
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
@@ -353,6 +356,7 @@ mod tests {
         let result = compress_image(&job(&input), &CompressionOptions { mode: CompressionMode::Lossless, ..Default::default() }, &CancellationToken::new(), || {}).unwrap();
 
         assert_eq!(result.status, JobStatus::Skipped);
+        assert!(result.skip_reason.as_deref().unwrap().contains("JPEG"));
         assert_eq!(fs::read(input).unwrap(), original);
     }
 

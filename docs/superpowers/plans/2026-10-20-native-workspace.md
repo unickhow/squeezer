@@ -170,11 +170,11 @@ git commit -m "feat: support per-image compression settings"
 
 **Interfaces:**
 - Consumes: queue removal and per-file override state from Tasks 2–3.
-- Produces: `retryJob(id: string): Promise<void>` in `src/lib/tauri.ts` and Tauri command `retry_job(id: String) -> Result<(), String>`; a failed job returns to queued, clears its error, and emits the updated job while preserving its ID and per-file override.
+- Produces: `retryJob(id: string): Promise<void>` in `src/lib/tauri.ts` and Tauri command `retry_job(id: String) -> Result<(), String>`; a failed job re-enters analysis, refreshes dimensions and thumbnail, clears its error and old output, then returns to queued without starting compression. Preserve its ID and per-file override.
 
 - [ ] **Step 1: Add failing Rust retry-state tests**
 
-Add `retry_job_requeues_failed_job_and_clears_error` and `retry_job_rejects_non_failed_jobs` in `src-tauri/src/commands.rs`. Assert the failed job transitions to queued, the error and output data are cleared, the job ID remains stable, and non-failed jobs return an actionable error.
+Add retry tests in `src-tauri/src/commands.rs`. Assert the failed job transitions to analyzing, clears its error and output data, resets stale dimensions and thumbnail, preserves its ID, and non-failed jobs return an actionable error.
 
 - [ ] **Step 2: Run the targeted Rust tests and confirm failure**
 
@@ -188,7 +188,7 @@ Implement `retry_job` for failed jobs only; set status to queued, clear error/ou
 
 - [ ] **Step 4: Wire retry into the row and inspector**
 
-Show `重試` only for failed jobs. Keep other successful rows and the failed job's per-file override; after retry, show it in the queued state and let the user explicitly start it.
+Show `重試` only for failed jobs. Keep other successful rows and the failed job's per-file override; after fresh analysis, return it to the queued state and let the user explicitly start it.
 
 - [ ] **Step 5: Run the targeted Rust tests**
 

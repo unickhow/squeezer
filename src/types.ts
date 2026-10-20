@@ -16,6 +16,7 @@ export interface CompressionJob {
   originalBytes: number;
   outputBytes?: number;
   error?: string;
+  skipReason?: string;
 }
 
 export interface CompressionOptions {

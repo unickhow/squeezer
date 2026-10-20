@@ -262,6 +262,7 @@ pub fn start_jobs(app: AppHandle, manager: State<'_, JobManager>, options: Compr
                     running.progress = progress_for_status(result.status);
                     running.output_path = result.output_path.map(|path| path.to_string_lossy().into_owned());
                     running.output_bytes = result.output_bytes;
+                    running.skip_reason = result.skip_reason;
                     update_job(&app_for_batch, &running);
                 }
                 Err(CompressionError::Cancelled) => { running.status = JobStatus::Cancelled; running.progress = 0; update_job(&app_for_batch, &running); }
@@ -277,25 +278,33 @@ fn options_for_job(job_id: &str, defaults: &CompressionOptions, overrides: &Hash
 
 fn retry_failed_job(job: &mut CompressionJob) -> Result<(), String> {
     if job.status != JobStatus::Failed { return Err("只有失敗的工作可以重試".into()); }
-    job.status = JobStatus::Queued;
+    job.status = JobStatus::Analyzing;
     job.progress = 0;
     job.error = None;
     job.output_path = None;
     job.output_bytes = None;
+    job.width = 0;
+    job.height = 0;
+    job.thumbnail = None;
+    job.skip_reason = None;
     Ok(())
 }
 
 #[tauri::command]
 pub fn retry_job(app: AppHandle, manager: State<'_, JobManager>, id: String) -> Result<(), String> {
-    let updated = {
+    let (updated, start_worker) = {
         let mut state = manager.0.lock().map_err(|_| "無法存取任務清單".to_string())?;
         let job = state.jobs.get_mut(&id).ok_or_else(|| "找不到此工作".to_string())?;
         retry_failed_job(job)?;
         let updated = job.clone();
         state.cancellations.remove(&id);
-        updated
+        state.analysis_queue.push_back(id.clone());
+        state.cancellations.insert(id.clone(), CancellationToken::new());
+        let start_worker = claim_analysis_worker(&mut state);
+        (updated, start_worker)
     };
     emit_update(&app, &updated);
+    if start_worker { run_analysis_worker(app, manager.inner().clone()); }
     Ok(())
 }
 
@@ -346,6 +355,7 @@ fn new_job(input_path: String, info: Option<MediaInfo>, error: Option<String>) -
         original_bytes: info.map(|info| info.original_bytes).unwrap_or_default(),
         output_bytes: None,
         error,
+        skip_reason: None,
     }
 }
 
@@ -381,7 +391,7 @@ mod tests {
     use crate::engine::{analyzer::MediaInfo, images::{CompressionMode, CompressionOptions, JobStatus}};
 
     #[test]
-    fn retry_job_requeues_failed_job_and_clears_error() {
+    fn retry_job_clears_failure_and_output_before_analysis() {
         let mut job = new_job("photo.jpg".into(), None, Some("compression failed".into()));
         job.status = JobStatus::Failed;
         job.output_path = Some("photo.squeezed.jpg".into());
@@ -389,12 +399,27 @@ mod tests {
         job.progress = 80;
         let id = job.id.clone();
         retry_failed_job(&mut job).unwrap();
-        assert_eq!(job.status, JobStatus::Queued);
+        assert_eq!(job.status, JobStatus::Analyzing);
         assert_eq!(job.id, id);
         assert_eq!(job.progress, 0);
         assert!(job.error.is_none());
         assert!(job.output_path.is_none());
         assert!(job.output_bytes.is_none());
+    }
+
+    #[test]
+    fn retry_job_reanalyzes_failed_job_and_clears_stale_metadata() {
+        let mut job = new_job("photo.jpg".into(), None, Some("analysis failed".into()));
+        job.status = JobStatus::Failed;
+        job.width = 120;
+        job.height = 80;
+        job.thumbnail = Some("stale-thumb".into());
+        retry_failed_job(&mut job).unwrap();
+        assert_eq!(job.status, JobStatus::Analyzing);
+        assert_eq!(job.progress, 0);
+        assert!(job.error.is_none());
+        assert_eq!((job.width, job.height), (0, 0));
+        assert!(job.thumbnail.is_none());
     }
 
     #[test]
