@@ -6,9 +6,17 @@
 
 ## 摘要與建議
 
-**建議第一版走 Apple AVFoundation 的 `AVAssetExportSession`，由小型 Swift helper 執行匯出；先限定輸入 MP4/MOV 中常見的 H.264/HEVC 視訊與 AAC 音訊，輸出 MP4/H.264 或 HEVC，預設保留音訊。** 這符合現有 macOS-only 定位，不需攜帶 FFmpeg 發佈物，也可先用系統 export preset 上線。匯出 preset、容器及來源資產是否相容都要在執行期查詢；不能把副檔名當成真正格式，也不能承諾固定壓縮率。[Apple：替代格式匯出](https://developer.apple.com/documentation/avfoundation/exporting-video-to-alternative-formats)、[export presets](https://developer.apple.com/documentation/avfoundation/export-presets)
+**技術路線尚未定案。** 初步看 `AVAssetExportSession` 的整合成本較低，但 Compresto 的公開影片流程包含目標容量、解析度與 bitrate 控制、H.264／HEVC，以及逐檔設定。這些需求可能超出固定 export preset 能提供的控制；因此 feasibility task 應直接比較 `AVAssetExportSession`、低階 AVFoundation／VideoToolbox、以及受控建置的 FFmpeg，而不是預先認定其中一條路線。Apple preset、容器及來源資產相容性都要在執行期查詢，不能把副檔名當成真正格式，也不能承諾固定壓縮率。[Apple：替代格式匯出](https://developer.apple.com/documentation/avfoundation/exporting-video-to-alternative-formats)、[export presets](https://developer.apple.com/documentation/avfoundation/export-presets)、[Compresto 影片流程](https://compresto.app/blog/how-to-compress-a-video)、[Compresto 逐檔覆寫](https://compresto.app/blog/compresto-1-28)
 
-如果產品需求是精確 bitrate、音訊逐軌控制、更多容器/編碼器、非 Apple 平台，或必須有可預期的品質旋鈕，再評估 FFmpeg sidecar。可用 FFmpeg 的 VideoToolbox H.264/HEVC encoder 取得 Apple 硬體編碼路徑，但這仍要自行建置、驗證、打包及履行 FFmpeg 與外部元件授權義務；硬體能力不是每台 Mac、每種設定都保證可用。[FFmpeg VideoToolbox encoder source](https://ffmpeg.org/doxygen/trunk/videotoolboxenc_8c.html)、[FFmpeg 授權說明](https://ffmpeg.org/legal.html)
+若目標容量、bitrate 或一致的品質控制是首版必要能力，FFmpeg sidecar 可能更符合控制需求，但同時增加自行建置、驗證、打包及履行 FFmpeg 與外部元件授權義務。FFmpeg 可使用 VideoToolbox H.264/HEVC encoder；硬體能力不是每台 Mac、每種設定都保證可用。[FFmpeg VideoToolbox encoder source](https://ffmpeg.org/doxygen/trunk/videotoolboxenc_8c.html)、[FFmpeg 授權說明](https://ffmpeg.org/legal.html)
+
+## Compresto 產品參照補充
+
+Compresto 官方網站定位涵蓋 MP4/MOV 壓縮與批次流程；其影片操作指南介紹快速 preset 與手動解析度／bitrate 調整、H.264 與 HEVC 的相容性取捨，以及先壓縮短片段檢查品質的做法。官方工作情境頁大量展示 email、Slack、Discord 等容量限制，也涵蓋雲端儲存和歸檔大小；因此 Squeezer 的影片設計應視為分享限制與省空間兩種工作情境。[Compresto 影片操作指南](https://compresto.app/blog/how-to-compress-a-video)、[Compresto 工作情境](https://compresto.app/use-case)
+
+官方 changelog 顯示其影片功能逐步擴張到逐檔品質／格式／縮放覆寫、目標容量、解析度調整、音訊處理、影片修剪及影片轉 GIF。這些可幫助理解成熟產品的需求面，但不表示每項都應納入 Squeezer 首版。[Compresto changelog](https://compresto.app/changelog)、[Compresto 1.28 逐檔覆寫](https://compresto.app/blog/compresto-1-28)
+
+實作方向可借鏡「先快速選擇，逐檔需要時再調整」，同時把預估容量與完成後實際容量分開標示。短片品質預覽很有用，但增加額外編碼等待與互動狀態，先列作 feasibility 後的 UX 決策，不預設納入首版。
 
 ## 路線比較
 
