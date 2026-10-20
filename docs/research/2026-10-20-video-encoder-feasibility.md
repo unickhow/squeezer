@@ -1,8 +1,8 @@
 # Squeezer video encoder feasibility results
 
-Date: 2026-10-20  
-Host: macOS 26.0, arm64  
-Plan: [video compression plan](../superpowers/plans/2026-10-20-video-compression.md)  
+Date: 2026-10-20
+Host: macOS 26.0, arm64
+Plan: [video compression plan](../superpowers/plans/2026-10-20-video-compression.md)
 Tools: Swift 6.2, AVFoundation, local FFmpeg/ffprobe 8.1.1
 
 ## Decision
