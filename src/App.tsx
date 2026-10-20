@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { ArrowDownToLine, ArrowUpRight, Ban, Check, CircleAlert, Eye, FileImage, FolderOpen, Image as ImageIcon, LoaderCircle, Minus, Plus, RotateCcw, Search, ShieldCheck, Sparkles, X } from "lucide-react";
 import { addFiles, cancelJob, clearJobs, removeJob as removeQueuedJob, retryJob as retryFailedJob, revealOutputs, startJobs, subscribeJobs } from "./lib/tauri";
 import { calculateSavings, formatBytes } from "./lib/format";
@@ -75,6 +75,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
     let disposed = false;
     subscribeJobs((updated) => {
