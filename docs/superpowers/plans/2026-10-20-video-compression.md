@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Implementation status (2026-10-20):** The first integrated video-compression slice is implemented and built. It supports MP4/MOV/M4V intake, H.264 output, single AAC/no-audio sources, optional 720p/1080p downscale, target-byte mode with one bounded bitrate correction, secure native preview, cancellation, output validation, and mixed image/video settings. Cargo (35 tests), frontend (16 tests), frontend production build, and macOS app bundle pass. Manual end-to-end checks still outstanding: seek/source switching, keyboard/reduced-motion/window-size review, and the full media/edge-case matrix. Keep unchecked plan steps as outstanding work.
+
 **Goal:** Add local video compression to Squeezer’s mixed-media workspace for storage reduction and share-size limits, with per-file control and trustworthy preview, progress, and results.
 
 **Architecture:** Keep the current Rust job manager and Tauri event flow, but give video analysis, options, and encoding their own module and type. First run a bounded encoder feasibility spike; only integrate a backend that passes the quality, control, cancellation, and distribution criteria. Share queue interactions with images while preserving separate image and video settings.
 
-**Tech Stack:** Tauri 2, Rust, React/TypeScript, macOS AVFoundation/VideoToolbox or a pinned FFmpeg sidecar (selected by Task 1), Node’s built-in test runner, Cargo tests.
+**Tech Stack:** Tauri 2, Rust, React/TypeScript, macOS AVFoundation/VideoToolbox Swift helper, Node’s built-in test runner, Cargo tests.
 
 **Spec:** `docs/superpowers/specs/2026-10-20-squeezer-video-compression-design.md`
 
@@ -43,15 +45,15 @@
 - Read: `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`
 
 **Interfaces:**
-- Produces: a reproducible comparison record covering `AVAssetExportSession`, AVAssetReader/Writer with VideoToolbox, and a pinned FFmpeg build configuration; later tasks use its selected backend and confirmed option limits.
+- Produces: comparison report; selected backend is AVAssetReader/Writer + VideoToolbox H.264 output.
 
-- [ ] **Step 1: Generate a deterministic fixture matrix with `fixtures.swift`** — emit named short/long clips covering H.264/HEVC, silent/AAC, portrait/orientation, 720p/1080p/4K and low/high motion; document generation commands and metadata in `README.md`.
-- [ ] **Step 2: Define decision criteria in `README.md`** — record output bytes, duration, playback/track validation, cancellation, resolution/audio/orientation preservation, target-size accuracy, and packaging/license burden.
-- [ ] **Step 3: Add separate standalone Swift harnesses for `AVAssetExportSession` and AVAssetReader/Writer + VideoToolbox** — query preset/output compatibility where applicable and record actual output metadata and bytes; neither harness is called by the app.
-- [ ] **Step 4: Add `run-ffmpeg.sh` for an explicitly configured local FFmpeg build** — reject unknown build configurations and record version, configure flags, encoders, output metadata, and license notices; do not substitute third-party prebuilt binaries.
-- [ ] **Step 5: Run each harness against the generated matrix** — record unavailable routes as unavailable with host/macOS or build reason; include measured cancellation and target-size miss behavior.
-- [ ] **Step 6: Write the measured results and select or reject a backend in `docs/research/2026-10-20-video-encoder-feasibility.md`** — if no route satisfies video quality, target-size behavior, output validation, and distribution constraints, stop and revise the spec before integration.
-- [ ] **Step 7: Review the spike artifacts**
+- [x] **Step 1: Generate a deterministic fixture matrix with `fixtures.swift`** — emit named short/long clips covering H.264/HEVC, silent/AAC, portrait/orientation, 720p/1080p/4K and low/high motion; document generation commands and metadata in `README.md`.
+- [x] **Step 2: Define decision criteria in `README.md`** — record output bytes, duration, playback/track validation, cancellation, resolution/audio/orientation preservation, target-size accuracy, and packaging/license burden.
+- [x] **Step 3: Add separate standalone Swift harnesses for `AVAssetExportSession` and AVAssetReader/Writer + VideoToolbox** — query preset/output compatibility where applicable and record actual output metadata and bytes; neither harness is called by the app.
+- [x] **Step 4: Add `run-ffmpeg.sh` for an explicitly configured local FFmpeg build** — reject unknown build configurations and record version, configure flags, encoders, output metadata, and license notices; do not substitute third-party prebuilt binaries.
+- [x] **Step 5: Run each harness against the generated matrix** — record unavailable routes as unavailable with host/macOS or build reason; include measured cancellation and target-size miss behavior.
+- [x] **Step 6: Write the measured results and select or reject a backend in `docs/research/2026-10-20-video-encoder-feasibility.md`** — if no route satisfies video quality, target-size behavior, output validation, and distribution constraints, stop and revise the spec before integration.
+- [x] **Step 7: Review the spike artifacts**
 
 Run: `swift tools/video-feasibility/fixtures.swift --help`
 Expected: usage and fixture-generation options are printed without generating files.
@@ -73,13 +75,13 @@ Expected: no whitespace errors.
 
 **Interfaces:**
 - Produces: common `MediaType`, `JobStatus`, and serializable `CompressionJob`; video metadata adds `durationMs` and source track/codec summaries without changing image requirements.
-- Produces: matching Rust and TypeScript `StartJobsRequest { imageOptions, imageOverrides, videoOptions, videoOverrides }`, serialized in camelCase; image settings continue using the existing `CompressionOptions` shape until video settings are integrated.
+- Produces: matching Rust/TypeScript image and video option payloads passed to `start_jobs` in camelCase; image settings continue using the existing `CompressionOptions` shape.
 
-- [ ] **Step 1: Add admission tests** — verify MP4/MOV/M4V are admitted as video, image extensions remain images, unsupported extensions fail with a specific message, duplicates are ignored, and a valid item in the same batch remains queued.
-- [ ] **Step 2: Generalize the job model** — move shared job/status types from `engine/images.rs` to `engine/jobs.rs`; change `mediaType` to the `image | video` enum and `extension` to a string in TypeScript; retain image-only fields and behavior.
-- [ ] **Step 3: Add video options and request types** — add `VideoCodec` (H.264/HEVC), quality preset, `maxDimension` (original/1080/720), optional `targetBytes`, and request-level batch/per-file settings. Keep whether target size is enabled conditional on Task 1’s feasibility result; never silently ignore it.
-- [ ] **Step 4: Extend native file selection and path admission** — add video filter extensions, inspect extension before analysis, and route video metadata analysis to the video module without applying the image 512 MiB limit.
-- [ ] **Step 5: Implement the admission/model tests**
+- [x] **Step 1: Add admission tests** — verify MP4/MOV/M4V are admitted as video, image extensions remain images, unsupported extensions fail with a specific message, duplicates are ignored, and a valid item in the same batch remains queued.
+- [x] **Step 2: Generalize the job model** — move shared job/status types from `engine/images.rs` to `engine/jobs.rs`; change `mediaType` to the `image | video` enum and `extension` to a string in TypeScript; retain image-only fields and behavior.
+- [x] **Step 3: Add video options and request types** — add H.264 output quality preset, `maxDimension` (original/1080/720), optional `targetBytes`, and batch/per-file settings. HEVC output was deferred based on Task 1 measurements; target size uses a bounded bitrate correction and reports misses honestly.
+- [x] **Step 4: Extend native file selection and path admission** — add video filter extensions, inspect extension before analysis, and route video metadata analysis to the video module without applying the image 512 MiB limit.
+- [x] **Step 5: Implement the admission/model tests**
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml admission`
 Expected: video/image routing, unsupported and malformed input, duplicate handling, and mixed-batch behavior pass.
@@ -104,10 +106,10 @@ Expected: existing queue interaction tests pass with both media types represente
 - Produces: a video preview source for exact job input/output paths through a streaming protocol; callers cannot pass arbitrary filesystem paths from the frontend.
 
 - [ ] **Step 1: Add video-analysis tests** — assert duration, dimensions, rotation, audio presence, codec, and thumbnail for supported fixtures; assert clear rejection for unsupported/corrupt fixtures.
-- [ ] **Step 2: Implement metadata analysis and bounded thumbnail extraction** — use the selected platform/media API; do not decode a full-duration video into memory.
+- [x] **Step 2: Implement metadata analysis and bounded thumbnail extraction** — use the selected platform/media API; do not decode a full-duration video into memory.
 - [ ] **Step 3: Add corrupt/renamed/unsupported-track tests** — files with a supported extension but invalid content or unhandled tracks fail analysis while valid siblings remain in the queue.
-- [ ] **Step 4: Add authorized preview-source command** — accept job ID and before/after selector, resolve the path only from `JobManager`, and return a streamable URL/source for the native player.
-- [ ] **Step 5: Configure Tauri asset protocol narrowly** — enable `protocol-asset`, seed an empty allow scope, allow only the selected job’s exact source/output files at runtime, and revoke them when the job is removed or cleared; do not use a home-directory wildcard. Add the minimum `media-src` CSP entry required by the asset URL.
+- [x] **Step 4: Add authorized preview-source command** — accept job ID and before/after selector, resolve the path only from `JobManager`, and return a streamable URL/source for the native player.
+- [x] **Step 5: Configure Tauri asset protocol narrowly** — enable `protocol-asset`, seed an empty allow scope, allow only the selected job’s exact source/output files at runtime, and revoke them when the job is removed or cleared; do not use a home-directory wildcard. Add the minimum `media-src` CSP entry required by the asset URL.
 - [ ] **Step 6: Verify preview authorization and streaming** — tests reject unknown IDs, missing outputs, and arbitrary frontend paths; verify removed jobs lose protocol access; manual check confirms seeking through a long clip without full-file buffering.
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml video_analysis`
@@ -129,9 +131,9 @@ Expected: supported metadata, thumbnail bounds, and unsupported-input cases pass
 - Produces: verified output metadata and actual bytes; requested target size is recorded as achieved only if measured output bytes are at or below the requested target.
 
 - [ ] **Step 1: Add lifecycle tests before encoding** — cover collision-safe `.squeezed.mp4` output, temporary-file cleanup on cancel/failure, input preservation, existing-output preservation, actual size reporting, and target-size miss reporting.
-- [ ] **Step 2: Integrate only the backend selected by Task 1** — keep encoder calls behind `compress_video`; pass validated options as structured arguments, never shell-interpolated strings.
-- [ ] **Step 3: Implement media-aware start, progress, cancellation, and retry** — retain serial queue order, emit real analysis/encoding/validation states, stop child/session on cancellation, and re-analyze source on retry.
-- [ ] **Step 4: Validate every temporary output before commit** — reopen it with the selected media API, verify expected video/audio tracks, dimensions/orientation and playable duration, apply the 10% savings skip policy, then atomically move it without overwriting.
+- [x] **Step 2: Integrate only the backend selected by Task 1** — keep encoder calls behind `compress_video`; pass validated options as structured arguments, never shell-interpolated strings.
+- [x] **Step 3: Implement media-aware start, progress, cancellation, and retry** — retain serial queue order, emit real analysis/encoding/validation states, stop child/session on cancellation, and re-analyze source on retry.
+- [x] **Step 4: Validate every temporary output before commit** — reopen it with the selected media API, verify expected video/audio tracks, dimensions/orientation and playable duration, apply the 10% savings skip policy, then atomically move it without overwriting.
 - [ ] **Step 5: Run backend and lifecycle verification**
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml video`
@@ -152,9 +154,9 @@ Expected: supported fixture encodes validate; cancellation leaves no temp file; 
 - Produces: independent image/video batch controls; a selected-video inspector with codec, resolution, target size where supported, inheritance/reset actions, and clearly labeled estimated output size if the chosen backend provides a defensible estimate.
 
 - [ ] **Step 1: Add UI-state tests** — cover image/video settings isolation, per-file video override and reset, target-size validation, mixed queue filtering/selection, and display labels distinguishing estimate from actual result.
-- [ ] **Step 2: Implement video-specific batch settings** — add H.264 compatibility default, HEVC only if Task 1 validates it, original/1080p/720p resolution selection, and target-size input only if feasibility approves it.
-- [ ] **Step 3: Implement per-file override flow** — inherit batch defaults by default, mark overridden rows, reset to batch, and lock controls once processing starts.
-- [ ] **Step 4: Generalize queue labels and feedback** — show video poster, duration, dimensions, size, state, actual savings, error, cancel, retry, and progress without changing image labels or controls.
+- [x] **Step 2: Implement video-specific batch settings** — add H.264 compatibility default, HEVC only if Task 1 validates it, original/1080p/720p resolution selection, and target-size input only if feasibility approves it.
+- [x] **Step 3: Implement per-file override flow** — inherit batch defaults by default, mark overridden rows, reset to batch, and lock controls once processing starts.
+- [x] **Step 4: Generalize queue labels and feedback** — show video poster, duration, dimensions, size, state, actual savings, error, cancel, retry, and progress without changing image labels or controls.
 - [ ] **Step 5: Run frontend checks**
 
 Run: `npm test`
@@ -176,7 +178,7 @@ Expected: TypeScript checks and Vite production build complete successfully.
 - Produces: one comparison player that switches original/output while preserving playhead when possible; only one source plays audio at a time.
 
 - [ ] **Step 1: Add preview-state checks** — verify unknown/missing output states, source switching, closing, and focus restoration in the existing preview flow where unit coverage is available.
-- [ ] **Step 2: Add native-feeling video controls** — explicit play/pause, scrubber, current source label, duration and byte size; video never autoplays in queue rows.
+- [x] **Step 2: Add native-feeling video controls** — explicit play/pause, scrubber, current source label, duration and byte size; video never autoplays in queue rows.
 - [ ] **Step 3: Add keyboard and reduced-motion behavior** — Escape closes, focus returns to the opener, accessible names/status are present, and transitions respect `prefers-reduced-motion`.
 - [ ] **Step 4: Check the window at 800×600 and 1120×780** — ensure queue, controls, inspector, preview, and primary action remain readable and reachable.
 

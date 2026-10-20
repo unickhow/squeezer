@@ -22,23 +22,22 @@
 
 ## MVP 建議範圍
 
-以下是參考 Compresto 後的規劃建議，須由使用者檢視後確認。Compresto 的產品內容顯示它同時處理社群／訊息平台上傳限制與一般儲存最佳化，提供快速品質 preset、手動解析度與 bitrate 控制、指定目標容量及逐檔覆寫；這些可作為 Squeezer 的需求參照，不代表其宣稱的壓縮率或品質保證可直接套用。[Compresto 影片操作指南](https://compresto.app/blog/how-to-compress-a-video)、[Compresto 工作情境](https://compresto.app/use-case)、[逐檔覆寫說明](https://compresto.app/blog/compresto-1-28)。
+本規格已依照 Compresto 參考研究與使用者確認的方向定稿。Compresto 的產品內容顯示它同時處理社群／訊息平台上傳限制與一般儲存最佳化，提供快速品質 preset、手動解析度與 bitrate 控制、指定目標容量及逐檔覆寫；這些可作為 Squeezer 的需求參照，不代表其宣稱的壓縮率或品質保證可直接套用。[Compresto 影片操作指南](https://compresto.app/blog/how-to-compress-a-video)、[Compresto 工作情境](https://compresto.app/use-case)、[逐檔覆寫說明](https://compresto.app/blog/compresto-1-28)。
 
 - 入口副檔名：`.mp4`、`.mov`、`.m4v`。副檔名只用於初步篩選，接著以 AVFoundation 實際檢查可否讀取、視訊軌／音訊軌與匯出相容性。
 - 第一階段以一般 SDR 影片為目標；HDR、Dolby Vision、空間／多視角影片、ProRes、字幕、章節與替代音軌先明確拒絕或標為不支援，不可靜默丟棄軌道或變更色彩資訊。
-- 支援一般 H.264／HEVC 視訊，以及單一 AAC 音訊軌或無音訊來源。只接受通過執行期 track 與輸出 preset 相容性檢查的素材。
+- 接受 AVFoundation 可讀取的一般 H.264／HEVC 來源，以及單一 AAC 音訊軌或無音訊來源；首版只輸出 H.264。HEVC 輸出先延後，因本機 VideoToolbox 實測顯示實際輸出大小對設定 bitrate 反應不足。
 - 預設保留來源解析度、方向、影格速率與主音訊；提供明確的 1080p／720p 等縮放選擇，未選擇縮放時不自行降解析度。來源音訊／方向／影格率需由代表性樣本驗證保留情形。
 - 輸出放在來源資料夾，以 `.squeezed` 後綴建立新 MP4；檔名衝突時使用不覆寫的遞增名稱。
-- 影片整批設定與圖片設定分開呈現；快速設定先提供少量清楚命名的品質選擇，進階調整包含 codec 與解析度。若可行，另提供指定目標容量模式，處理分享平台的容量上限。顯示容量預估時必須標為預估，不可當作實際結果。
+- 影片整批設定與圖片設定分開呈現；快速設定提供高畫質／平衡／小檔案，進階調整包含長邊解析度和目標容量。目標容量是編碼目標而非保證；執行一次有界 bitrate 修正，完成後顯示實際大小與是否達標，不用估值冒充結果。
 - 設定在逐檔覆寫和影片批次預設之間有清楚關係；個別調整只影響該影片。允許壓縮期間繼續加入後續項目，但不要求第一版平行編碼。
 - 若輸出未比原檔至少小 10%（沿用圖片目前的初始門檻），刪除暫存輸出並標成略過，附上原因。實際素材測試若顯示 10% 不適合作為影片門檻，先回報結果再調整。
 
 ## 編碼器方向
 
-尚未定案 encoder。Compresto 的產品參照包含目標容量和更直接的解析度／bitrate 控制；先前研究顯示 Apple 高階 export preset 的選項較固定。因此第一個技術驗證須比較 `AVAssetExportSession`、`AVAssetReader`／`AVAssetWriter`／VideoToolbox，以及受控建置的 FFmpeg 路線，檢查三者能否支援目標容量、品質控制、H.264／HEVC、實際節省、輸出相容性、音訊／方向保留、取消清理與發佈成本。不要在驗證前假定原生路線足以達到 Compresto 參照的操作控制，也不要預先排除 FFmpeg。
+已完成 encoder feasibility spike，選定 Apple 原生 AVAssetReader／AVAssetWriter + VideoToolbox，首版輸出 H.264。`AVAssetExportSession` 的 medium preset 會把 1080p 降到 568×320；Reader/Writer 可控制 bitrate、保留 AAC／時長並取消清理。代表性素材的目標容量約差 0.5–2.9%，但有些內容會遇到 bitrate 下限。HEVC 輸出在本機沒有按設定 bitrate 縮小，先不提供。Homebrew FFmpeg 的 GPL 編碼器與無法核實的建置來源不符合打包條件，因此不採用。量測細節見[可行性報告](../../research/2026-10-20-video-encoder-feasibility.md)。
 
-後續實作計畫建議先安排一個限定素材與指標的 encoder feasibility task，並產生三種路線的比較報告，不直接綁定正式架構；若任一路線未達品質、操作控制或發佈要求，先回到此規格確認範圍，再開始 encoder integration。
-
+產品端以原生 Swift helper 完成 metadata、poster、H.264 編碼和輸出重讀驗證。影片長邊可選原尺寸、1080 或 720；目標容量至多做一次 bitrate 修正，超標時顯示實際容量和未達原因。輸出若未比原片至少小 10%，會略過並刪除暫存檔。
 Apple 文件指出 `AVAssetExportSession` 以 preset 與輸出類型匯出，且應先查詢來源／輸出相容性；VideoToolbox 可使用硬體編碼，但硬體可用性取決於機型與設定。[替代格式匯出](https://developer.apple.com/documentation/avfoundation/exporting-video-to-alternative-formats)、[Export Presets](https://developer.apple.com/documentation/avfoundation/export-presets)、[VideoToolbox](https://developer.apple.com/documentation/videotoolbox)。不要在 UI 保證所有裝置皆硬體加速。
 
 Compresto 公開 README 說明其使用 FFmpeg；這可作為其 codec 與控制範圍的技術參照，但 Squeezer 是否採用仍由原型結果及發佈需求決定。[Compresto 公開 README](https://github.com/dqhieu/ComprestoApp#features)。FFmpeg 官方只提供原始碼，建置選項會影響 GPL/LGPL 與再散佈義務；任何打包方案必須先固定 build 組態並完成來源碼、license、notice 與二進位稽核。[FFmpeg 官方下載](https://www.ffmpeg.org/download.html)、[FFmpeg 法律說明](https://ffmpeg.org/legal.html)。本規格不構成法律意見。
@@ -84,16 +83,15 @@ Compresto 公開 README 說明其使用 FFmpeg；這可作為其 codec 與控制
 6. 至少涵蓋 800 × 600 和 1120 × 780：排隊資料、開始／取消、搜尋、選取、預覽與主行動均可達；讀屏和減少動態行為可用。
 7. 以固定測試素材記錄輸出格式、解析度、實際 bytes、節省比例、耗時、音訊與方向結果；依此校正影片 preset 名稱，不能只測「命令成功」。
 
-## 待使用者確認
+## 已定案
 
-1. 主要使用情境：手機影片歸檔省空間，還是分享前縮檔？這會影響預設編碼、相容性和縮放選項。
-2. 使用者是否接受輸出 HEVC 才能換取較小檔案，或第一版只要更廣泛相容的 H.264？建議先提供 H.264 預設並把 HEVC 作為明確的小檔選項，前提是實測可行。
-3. 是否需要影片預設縮到 1080p，還是預設保留解析度且只由使用者主動選擇縮小？建議保留來源解析度作預設。
-4. 首版是否接受先不處理 HDR、Dolby Vision、多音軌和字幕？建議拒絕並清楚說明，不靜默轉成 SDR 或丟資料。
-5. 是否同意實作計畫先做 encoder feasibility task，比較 Apple 原生路線與 FFmpeg 控制能力及發佈成本，再決定正式 integration？建議同意，因為目標容量與細緻品質控制可能超出 AVAssetExportSession presets 能提供的範圍。
-
+- 使用情境參照 Compresto 的日常縮檔與分享容量限制流程。
+- 首版只輸出相容性較廣的 H.264；來源可讀 H.264／HEVC。
+- 預設保留原解析度，縮放由使用者選擇。
+- HDR／Dolby Vision、多音訊、字幕與章節軌明確拒絕。
+- 使用 Swift/AVFoundation helper，不打包來源不明的 FFmpeg binary。
 ## 研究記錄
 
-編碼器比較、FFmpeg 發佈風險、Tauri sidecar 與媒體串流範圍整理於 [影片編碼器選項研究](../../research/2026-10-20-video-encoder-options.md)。研究尚未在目標 Mac 上量測 AVFoundation 輸出品質、媒體相容性或能耗；技術驗證結果應更新此規格後再進入實作計畫。
+編碼器比較、FFmpeg 發佈風險、Tauri sidecar 與媒體串流範圍整理於 [影片編碼器選項研究](../../research/2026-10-20-video-encoder-options.md)。原生編碼器的代表性輸出數據記於 feasibility report；尚未完成多機型能耗與廣泛素材品質驗證。
 
 Compresto 參照補充於 2026-10-20：本規格採用其「快速品質選擇 + 需要時深入控制 + 逐檔覆寫」的產品分層作為方向；不複製其全部格式、轉 GIF、資料夾監控或目標平台 presets。Compresto 官網、公開 changelog 和工作情境頁列出目標容量、解析度調整、H.264／HEVC、影片/GIF 預覽與批次流程等功能。[官方網站](https://compresto.app/)、[官方 changelog](https://compresto.app/changelog)、[官方工作情境](https://compresto.app/use-case)。
