@@ -15,6 +15,7 @@ import {
   mergeAdmissionJobs,
   filterQueueJobs,
   getEffectiveOptions,
+  getOverrideAnnouncement,
 } from "../src/lib/interactions.ts";
 import type { CompressionJob, CompressionOptions } from "../src/types.ts";
 
@@ -44,6 +45,11 @@ test("effective options use a per-file override or batch default", () => {
   const override = options({ mode: "small", pngLossy: true });
   assert.equal(getEffectiveOptions("one", defaults, { one: override }), override);
   assert.equal(getEffectiveOptions("two", defaults, { one: override }), defaults);
+});
+
+test("override announcements name the image and describe the setting change", () => {
+  assert.equal(getOverrideAnnouncement("custom", "coastline.jpg"), "已為 coastline.jpg 設定個別壓縮方式");
+  assert.equal(getOverrideAnnouncement("inherit", "coastline.jpg"), "已恢復 coastline.jpg 沿用整批設定");
 });
 
 test("primary action describes count and busy state", () => {

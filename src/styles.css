@@ -207,6 +207,9 @@ button { font: inherit; }
 .job-row.selected { background: #f4eee8; box-shadow: inset 3px 0 #ad6241; }
 .job-row:focus-visible { z-index: 1; outline-offset: -2px; }
 .job-file { gap: 11px; }
+.job-select { min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.job-select:focus-visible { outline: 2px solid #914a30; outline-offset: 3px; border-radius: 2px; }
+.job-select[aria-current="true"] .job-name-wrap b { color: #7d442f; }
 .thumbnail-button { width: 54px; height: 46px; flex-basis: 54px; border-radius: 4px; }
 .file-badge { width: 44px; height: 40px; flex-basis: 44px; font-size: 10px; }
 .job-name-wrap b { font-size: 13px; }
@@ -305,3 +308,7 @@ button { font: inherit; }
 .retry-action:hover { background: #f3e3d8; }
 .locked-settings { margin-top: 13px; display: flex; flex-direction: column; gap: 4px; color: #77766e; }
 .locked-settings span { font-size: 11px; line-height: 1.4; }
+@media (prefers-reduced-motion: reduce) {
+  .job-row.arriving,.job-row.result-completed,.job-row.result-skipped,.job-row.result-failed,.job-row.result-cancelled { animation: none !important; }
+  .thumbnail-button:hover,.thumbnail-button:active,.mode-card:active,.png-lossy-toggle:active { transform: none !important; }
+}

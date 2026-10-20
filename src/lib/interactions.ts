@@ -50,6 +50,12 @@ export function getEffectiveOptions(jobId: string, defaults: CompressionOptions,
   return overrides[jobId] ?? defaults;
 }
 
+export function getOverrideAnnouncement(action: "custom" | "inherit", fileName: string): string {
+  return action === "custom"
+    ? `已為 ${fileName} 設定個別壓縮方式`
+    : `已恢復 ${fileName} 沿用整批設定`;
+}
+
 export function getRevealableJobIds(jobs: CompressionJob[]): string[] {
   const outputs = jobs.filter((job) => job.status === "completed" && job.outputPath);
   if (outputs.length === 0) return [];
