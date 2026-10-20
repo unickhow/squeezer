@@ -1,0 +1,57 @@
+import type { CompressionJob, CompressionMode } from "../types";
+
+const modes: CompressionMode[] = ["lossless", "quality", "balanced", "small"];
+
+export function getPrimaryActionState(queuedCount: number, active: boolean, busy: boolean): { label: string; disabled: boolean } {
+  if (active || busy) return { label: "處理中…", disabled: true };
+  if (queuedCount === 0) return { label: "加入圖片後即可開始", disabled: true };
+  return { label: `壓縮 ${queuedCount} 張`, disabled: false };
+}
+
+export function getNextCompressionMode(current: CompressionMode, key: "ArrowLeft" | "ArrowRight"): CompressionMode {
+  const index = modes.indexOf(current);
+  const offset = key === "ArrowRight" ? 1 : -1;
+  return modes[(index + offset + modes.length) % modes.length]!;
+}
+
+export function getJobActionLabel(job: CompressionJob, cancelRequested: boolean): string {
+  if (cancelRequested) return `正在安全取消 ${job.fileName}`;
+  if (["analyzing", "compressing", "validating"].includes(job.status)) return `取消此檔 ${job.fileName}`;
+  return `從清單移除 ${job.fileName}`;
+}
+
+export function getResultActionLabel(outputCount: number): string {
+  return outputCount === 1 ? "在 Finder 顯示輸出" : `在 Finder 顯示全部 ${outputCount} 個輸出`;
+}
+
+export function getResultCounts(jobs: CompressionJob[]): { completed: number; skipped: number; failed: number; cancelled: number } {
+  return jobs.reduce((counts, job) => {
+    if (job.status === "completed") counts.completed++;
+    else if (job.status === "skipped") counts.skipped++;
+    else if (job.status === "failed") counts.failed++;
+    else if (job.status === "cancelled") counts.cancelled++;
+    return counts;
+  }, { completed: 0, skipped: 0, failed: 0, cancelled: 0 });
+}
+
+function parentPath(path: string): string {
+  return path.split(/[\\/]/).slice(0, -1).join("/");
+}
+
+export function getRevealableJobIds(jobs: CompressionJob[]): string[] {
+  const outputs = jobs.filter((job) => job.status === "completed" && job.outputPath);
+  if (outputs.length === 0) return [];
+  const parent = parentPath(outputs[0]!.outputPath!);
+  if (outputs.some((job) => parentPath(job.outputPath!) !== parent)) return [];
+  return outputs.map((job) => job.id);
+}
+
+export function getStatusAnnouncement(job: CompressionJob): string {
+  const outcome = ({ completed: "已完成", skipped: "已略過", failed: "失敗", cancelled: "已取消" } as const)[job.status as "completed" | "skipped" | "failed" | "cancelled"];
+  return outcome ? `${job.fileName}，${outcome}` : `${job.fileName}，${job.status === "analyzing" ? "分析中" : job.status === "compressing" ? "壓縮中" : "等待中"}`;
+}
+
+export function mergeAdmissionJobs(current: CompressionJob[], admitted: CompressionJob[], latestEvents: Map<string, CompressionJob>): CompressionJob[] {
+  const knownPaths = new Set(current.map((job) => job.inputPath));
+  return [...current, ...admitted.filter((job) => !knownPaths.has(job.inputPath)).map((job) => latestEvents.get(job.id) ?? job)];
+}
