@@ -1,5 +1,7 @@
 use std::{fs, path::Path};
 
+use super::image_formats::ImageFormatKind;
+
 use serde::Serialize;
 
 pub const MAX_INPUT_BYTES: u64 = 512 * 1024 * 1024;
@@ -20,7 +22,7 @@ pub struct MediaInfo {
 pub enum AnalyzeError {
     #[error("找不到檔案或無法讀取：{0}")]
     Io(#[from] std::io::Error),
-    #[error("只支援 JPEG 與 PNG 圖片")]
+    #[error("只支援 JPEG、PNG、WebP、AVIF 與 JPEG XL 圖片")]
     UnsupportedFormat,
     #[error("圖片無法解碼或檔案已損毀")]
     InvalidImage,
@@ -32,7 +34,9 @@ pub fn analyze_media(path: &Path) -> Result<MediaInfo, AnalyzeError> {
     analyze_media_with_image(path).map(|(info, _)| info)
 }
 
-pub fn analyze_media_with_image(path: &Path) -> Result<(MediaInfo, image::DynamicImage), AnalyzeError> {
+pub fn analyze_media_with_image(
+    path: &Path,
+) -> Result<(MediaInfo, image::DynamicImage), AnalyzeError> {
     let metadata = fs::metadata(path)?;
     if !metadata.is_file() {
         return Err(AnalyzeError::UnsupportedFormat);
@@ -46,7 +50,7 @@ pub fn analyze_media_with_image(path: &Path) -> Result<(MediaInfo, image::Dynami
         .and_then(|extension| extension.to_str())
         .map(str::to_ascii_lowercase)
         .ok_or(AnalyzeError::UnsupportedFormat)?;
-    if !matches!(extension.as_str(), "jpg" | "jpeg" | "png") {
+    if ImageFormatKind::from_extension(&extension).is_none() {
         return Err(AnalyzeError::UnsupportedFormat);
     }
 
@@ -54,8 +58,13 @@ pub fn analyze_media_with_image(path: &Path) -> Result<(MediaInfo, image::Dynami
         .map_err(|error| AnalyzeError::Io(error.into()))?
         .with_guessed_format()
         .map_err(|error| AnalyzeError::Io(error.into()))?;
-    let (width, height) = reader.into_dimensions().map_err(|_| AnalyzeError::InvalidImage)?;
-    if width > MAX_IMAGE_EDGE || height > MAX_IMAGE_EDGE || u64::from(width) * u64::from(height) > MAX_IMAGE_PIXELS {
+    let (width, height) = reader
+        .into_dimensions()
+        .map_err(|_| AnalyzeError::InvalidImage)?;
+    if width > MAX_IMAGE_EDGE
+        || height > MAX_IMAGE_EDGE
+        || u64::from(width) * u64::from(height) > MAX_IMAGE_PIXELS
+    {
         return Err(AnalyzeError::ImageTooLarge);
     }
     let decoded = decode_bounded(path)?;
@@ -65,24 +74,34 @@ pub fn analyze_media_with_image(path: &Path) -> Result<(MediaInfo, image::Dynami
         .unwrap_or("Image")
         .to_string();
 
-    Ok((MediaInfo {
-        file_name,
-        extension,
-        width,
-        height,
-        original_bytes: metadata.len(),
-    }, decoded))
+    Ok((
+        MediaInfo {
+            file_name,
+            extension,
+            width,
+            height,
+            original_bytes: metadata.len(),
+        },
+        decoded,
+    ))
 }
 
 pub fn decode_bounded(path: &Path) -> Result<image::DynamicImage, AnalyzeError> {
     let metadata = fs::metadata(path)?;
-    if metadata.len() > MAX_INPUT_BYTES { return Err(AnalyzeError::ImageTooLarge); }
+    if metadata.len() > MAX_INPUT_BYTES {
+        return Err(AnalyzeError::ImageTooLarge);
+    }
     let reader = image::ImageReader::open(path)
         .map_err(|error| AnalyzeError::Io(error.into()))?
         .with_guessed_format()
         .map_err(|error| AnalyzeError::Io(error.into()))?;
-    let (width, height) = reader.into_dimensions().map_err(|_| AnalyzeError::InvalidImage)?;
-    if width > MAX_IMAGE_EDGE || height > MAX_IMAGE_EDGE || u64::from(width) * u64::from(height) > MAX_IMAGE_PIXELS {
+    let (width, height) = reader
+        .into_dimensions()
+        .map_err(|_| AnalyzeError::InvalidImage)?;
+    if width > MAX_IMAGE_EDGE
+        || height > MAX_IMAGE_EDGE
+        || u64::from(width) * u64::from(height) > MAX_IMAGE_PIXELS
+    {
         return Err(AnalyzeError::ImageTooLarge);
     }
     let mut reader = image::ImageReader::open(path)
@@ -112,7 +131,12 @@ mod tests {
         let path = dir.path().join("海邊.png");
         let mut png = Cursor::new(Vec::new());
         PngEncoder::new(&mut png)
-            .write_image(&RgbImage::from_pixel(12, 7, Rgb([20, 40, 60])).into_raw(), 12, 7, image::ExtendedColorType::Rgb8)
+            .write_image(
+                &RgbImage::from_pixel(12, 7, Rgb([20, 40, 60])).into_raw(),
+                12,
+                7,
+                image::ExtendedColorType::Rgb8,
+            )
             .unwrap();
         fs::write(&path, png.into_inner()).unwrap();
 
@@ -129,6 +153,9 @@ mod tests {
         let path = dir.path().join("broken.jpg");
         fs::write(&path, b"not an image").unwrap();
 
-        assert!(matches!(analyze_media(&path), Err(AnalyzeError::InvalidImage)));
+        assert!(matches!(
+            analyze_media(&path),
+            Err(AnalyzeError::InvalidImage)
+        ));
     }
 }

@@ -28,7 +28,7 @@ function job(overrides: Partial<CompressionJob> = {}): CompressionJob {
 }
 
 function options(overrides: Partial<CompressionOptions> = {}): CompressionOptions {
-  return { mode: "balanced", outputFormat: "original", preserveMetadata: true, minSavingsPercent: 0, pngLossy: false, ...overrides };
+  return { mode: "balanced", outputFormat: "original", preserveMetadata: true, minSavingsPercent: 0, ...overrides };
 }
 
 test("queue search filters names and parent folders without mutating jobs", () => {
@@ -53,7 +53,7 @@ test("queue arrow navigation stays within the visible rows", () => {
 
 test("effective options use a per-file override or batch default", () => {
   const defaults = options();
-  const override = options({ mode: "small", pngLossy: true });
+  const override = options({ mode: "small" });
   assert.equal(getEffectiveOptions("one", defaults, { one: override }), override);
   assert.equal(getEffectiveOptions("two", defaults, { one: override }), defaults);
 });
@@ -73,9 +73,8 @@ test("primary action describes count and busy state", () => {
 
 test("quality modes cycle with wraparound", () => {
   assert.equal(getNextCompressionMode("quality", "ArrowRight"), "balanced");
-  assert.equal(getNextCompressionMode("quality", "ArrowLeft"), "lossless");
-  assert.equal(getNextCompressionMode("small", "ArrowRight"), "lossless");
-  assert.equal(getNextCompressionMode("lossless", "ArrowLeft"), "small");
+  assert.equal(getNextCompressionMode("quality", "ArrowLeft"), "small");
+  assert.equal(getNextCompressionMode("small", "ArrowRight"), "quality");
 });
 
 test("row action labels describe cancel, pending cancellation and removal", () => {

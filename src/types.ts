@@ -1,4 +1,4 @@
-export type CompressionMode = "lossless" | "quality" | "balanced" | "small";
+export type CompressionMode = "quality" | "balanced" | "small";
 export type JobStatus = "queued" | "analyzing" | "compressing" | "validating" | "completed" | "skipped" | "failed" | "cancelled";
 export type MediaType = "image" | "video";
 export type VideoQuality = "high" | "balanced" | "small";
@@ -29,7 +29,6 @@ export interface CompressionOptions {
   outputFormat: "original";
   preserveMetadata: boolean;
   minSavingsPercent: number;
-  pngLossy: boolean;
 }
 
 export interface VideoOptions {

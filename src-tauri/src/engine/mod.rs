@@ -1,4 +1,5 @@
 pub mod analyzer;
+pub mod image_formats;
 pub mod images;
 pub mod jobs;
 pub mod paths;

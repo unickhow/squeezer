@@ -21,7 +21,10 @@ uuid = { version = "1", features = ["v4", "serde"] }
 tokio = { version = "1", features = ["process", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 base64 = "0.22"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "avif"] }
+jxl-oxide = { version = "0.12.6", default-features = false, features = ["image"] }
+webp = "0.3.1"
+quantette = { version = "0.6", default-features = false, features = ["image", "kmeans"] }
 png = "0.18"
 oxipng = { version = "9", default-features = false }
 rfd = "0.16"

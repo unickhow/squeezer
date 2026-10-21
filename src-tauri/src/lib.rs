@@ -1,7 +1,8 @@
-mod engine;
 mod commands;
+mod engine;
 
 pub fn run() {
+    jxl_oxide::integration::register_image_decoding_hook();
     tauri::Builder::default()
         .manage(commands::JobManager::default())
         .invoke_handler(tauri::generate_handler![
@@ -39,7 +40,10 @@ mod tests {
 
         assert_eq!(output.file_name().unwrap(), "photo.squeezed-2.jpg");
         assert_eq!(fs::read(&input).unwrap(), b"source");
-        assert_eq!(fs::read(output).unwrap_err().kind(), std::io::ErrorKind::NotFound);
+        assert_eq!(
+            fs::read(output).unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
     }
 
     #[test]

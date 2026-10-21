@@ -1,6 +1,6 @@
 import type { CompressionJob, CompressionMode, CompressionOptions } from "../types";
 
-const modes: CompressionMode[] = ["lossless", "quality", "balanced", "small"];
+const modes: CompressionMode[] = ["quality", "balanced", "small"];
 
 export function getPrimaryActionState(queuedCount: number, active: boolean, busy: boolean): { label: string; disabled: boolean } {
   if (busy) return { label: `正在開始 ${queuedCount} 個檔案…`, disabled: true };
