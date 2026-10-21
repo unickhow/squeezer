@@ -70,9 +70,23 @@ pub struct CompressionResult {
     pub skip_reason: Option<String>,
 }
 
+#[cfg(test)]
 pub fn compress_image<F>(
     job: &CompressionJob,
     options: &CompressionOptions,
+    cancel: &CancellationToken,
+    on_validating: F,
+) -> Result<CompressionResult, CompressionError>
+where
+    F: FnOnce(),
+{
+    compress_image_to(job, options, None, cancel, on_validating)
+}
+
+pub fn compress_image_to<F>(
+    job: &CompressionJob,
+    options: &CompressionOptions,
+    output_directory: Option<&Path>,
     cancel: &CancellationToken,
     on_validating: F,
 ) -> Result<CompressionResult, CompressionError>
@@ -83,7 +97,8 @@ where
         return Err(CompressionError::Cancelled);
     }
     let input = Path::new(&job.input_path);
-    let output_dir = input.parent().unwrap_or_else(|| Path::new("."));
+    let output_dir =
+        output_directory.unwrap_or_else(|| input.parent().unwrap_or_else(|| Path::new(".")));
     let final_path = output_path_for(input, output_dir)?;
     let temp_path = temporary_path(&final_path, &job.id);
     let _temp_guard = TempOutput(temp_path.clone());
@@ -495,6 +510,7 @@ impl Drop for TempOutput {
 mod tests {
     use super::{
         CompressionJob, CompressionMode, CompressionOptions, JobStatus, MediaType, compress_image,
+        compress_image_to,
     };
     use image::{GenericImageView, ImageEncoder, Rgba, RgbaImage, codecs::png::PngEncoder};
     use std::{fs, io::Cursor};
@@ -535,6 +551,31 @@ mod tests {
             error: None,
             skip_reason: None,
         }
+    }
+
+    #[test]
+    fn writes_custom_output_to_selected_directory_without_overwriting() {
+        let source_dir = tempdir().unwrap();
+        let output_dir = tempdir().unwrap();
+        let input = source_dir.path().join("photo.png");
+        let existing = output_dir.path().join("photo.squeezed.png");
+        make_png(&input);
+        fs::write(&existing, b"keep existing output").unwrap();
+        let original = fs::read(&input).unwrap();
+        let result = compress_image_to(
+            &job(&input),
+            &CompressionOptions::default(),
+            Some(output_dir.path()),
+            &CancellationToken::new(),
+            || {},
+        )
+        .unwrap();
+        assert_eq!(result.status, JobStatus::Completed);
+        let output = result.output_path.unwrap();
+        assert_eq!(output.parent(), Some(output_dir.path()));
+        assert_eq!(output.file_name().unwrap(), "photo.squeezed-2.png");
+        assert_eq!(fs::read(&input).unwrap(), original);
+        assert_eq!(fs::read(existing).unwrap(), b"keep existing output");
     }
 
     #[test]

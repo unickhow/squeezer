@@ -25,13 +25,40 @@ impl Default for VideoOptions {
 struct TempOutput(PathBuf);
 impl Drop for TempOutput { fn drop(&mut self) { let _ = fs::remove_file(&self.0); } }
 
-pub fn compress_video<F, V>(job: &CompressionJob, options: &VideoOptions, helper: &Path, cancel: &CancellationToken, mut on_progress: F, on_validating: V) -> Result<CompressionResult, String>
-where F: FnMut(u8), V: FnOnce() {
+#[cfg(test)]
+pub fn compress_video<F, V>(
+    job: &CompressionJob,
+    options: &VideoOptions,
+    helper: &Path,
+    cancel: &CancellationToken,
+    on_progress: F,
+    on_validating: V,
+) -> Result<CompressionResult, String>
+where
+    F: FnMut(u8),
+    V: FnOnce(),
+{
+    compress_video_to(job, options, helper, None, cancel, on_progress, on_validating)
+}
+
+pub fn compress_video_to<F, V>(
+    job: &CompressionJob,
+    options: &VideoOptions,
+    helper: &Path,
+    output_directory: Option<&Path>,
+    cancel: &CancellationToken,
+    mut on_progress: F,
+    on_validating: V,
+) -> Result<CompressionResult, String>
+where
+    F: FnMut(u8),
+    V: FnOnce(),
+{
     if cancel.is_cancelled() { return Err("__cancelled__".into()); }
     if !matches!(options.max_dimension, 0 | 720 | 1080) { return Err("影片長邊解析度只能選原尺寸、720p 或 1080p".into()); }
     if options.target_bytes == Some(0) { return Err("目標容量必須大於 0".into()); }
     let input = Path::new(&job.input_path);
-    let output_dir = input.parent().unwrap_or_else(|| Path::new("."));
+    let output_dir = output_directory.unwrap_or_else(|| input.parent().unwrap_or_else(|| Path::new(".")));
     let final_path = video_output_path_for(input, output_dir).map_err(|error| error.to_string())?;
     let temp = temporary_path(&final_path, &job.id);
     let _cleanup = TempOutput(temp.clone());
@@ -129,11 +156,11 @@ fn commit_without_overwrite(temp: &Path, output: &Path) -> Result<PathBuf, Strin
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, os::unix::fs::PermissionsExt, thread, time::Duration};
+    use std::{fs, os::unix::fs::PermissionsExt, path::Path, thread, time::Duration};
     use tempfile::tempdir;
     use tokio_util::sync::CancellationToken;
 
-    use crate::engine::{jobs::{CompressionJob, JobStatus, MediaType}, videos::{VideoOptions, VideoQuality, compress_video}};
+    use crate::engine::{jobs::{CompressionJob, JobStatus, MediaType}, videos::{VideoOptions, VideoQuality, compress_video, compress_video_to}};
 
     #[test]
     fn video_options_keep_quality_and_target_separate() {
@@ -142,6 +169,57 @@ mod tests {
         assert_eq!(json["quality"], "small");
         assert_eq!(json["maxDimension"], 720);
         assert_eq!(json["targetBytes"], 2_000_000);
+    }
+
+    #[test]
+    fn video_encoder_receives_custom_output_directory() {
+        let source = tempdir().unwrap();
+        let destination = tempdir().unwrap();
+        let input = source.path().join("clip.mov");
+        let helper = source.path().join("mock-helper.sh");
+        let log = source.path().join("output-path.txt");
+        fs::write(&input, b"source bytes").unwrap();
+        fs::write(&helper, format!(
+            "#!/bin/sh\nif [ \"$1\" = encode ]; then printf mock > \"$3\"; echo \"$3\" > '{}'; echo progress=1; exit 0; fi\nexit 2\n",
+            log.display()
+        )).unwrap();
+        let mut permissions = fs::metadata(&helper).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&helper, permissions).unwrap();
+        let job = CompressionJob {
+            id: "route-test".into(),
+            input_path: input.to_string_lossy().into(),
+            output_path: None,
+            thumbnail: None,
+            file_name: "clip.mov".into(),
+            extension: "mov".into(),
+            media_type: MediaType::Video,
+            width: 640,
+            height: 480,
+            duration_ms: Some(1_000),
+            codec: Some("avc1".into()),
+            audio_codec: None,
+            status: JobStatus::Queued,
+            progress: 0,
+            original_bytes: 1_000_000,
+            output_bytes: None,
+            error: None,
+            skip_reason: None,
+        };
+        let result = compress_video_to(
+            &job,
+            &VideoOptions::default(),
+            &helper,
+            Some(destination.path()),
+            &CancellationToken::new(),
+            |_| {},
+            || {},
+        );
+        assert!(result.is_err());
+        let encoded_path = fs::read_to_string(log).unwrap();
+        assert!(Path::new(encoded_path.trim()).starts_with(destination.path()));
+        assert_eq!(fs::read(input).unwrap(), b"source bytes");
+        assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 0);
     }
 
     #[test]

@@ -12,10 +12,10 @@ use tokio_util::sync::CancellationToken;
 use crate::engine::{
     analyzer::{MediaInfo, analyze_media_with_image},
     image_formats::ImageFormatKind,
-    images::{CompressionJob, CompressionOptions, JobStatus, MediaType, compress_image},
+    images::{CompressionJob, CompressionOptions, JobStatus, MediaType, compress_image_to},
     preview::{image_preview as render_image_preview, image_thumbnail_from_image},
     video_analysis::{VideoInfo, analyze_video},
-    videos::{VideoOptions, compress_video},
+    videos::{VideoOptions, compress_video_to},
 };
 
 #[derive(Default, Clone)]
@@ -420,22 +420,55 @@ fn collect_revealable_outputs(
     Ok(paths)
 }
 
-#[tauri::command]
-pub fn start_jobs(
-    app: AppHandle,
-    manager: State<'_, JobManager>,
-    options: CompressionOptions,
-    overrides: HashMap<String, CompressionOptions>,
-    video_options: VideoOptions,
-    video_overrides: HashMap<String, VideoOptions>,
-) {
-    let mut state = manager.0.lock().unwrap();
+fn validate_output_directory(path: Option<&Path>) -> Result<(), String> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    if !path.is_absolute() || !path.is_dir() {
+        return Err(format!(
+            "輸出資料夾不存在或無法使用：{}。請在偏好設定中選擇有效資料夾。",
+            path.display()
+        ));
+    }
+    let probe = path.join(format!(".squeezer-write-check-{}", uuid::Uuid::new_v4()));
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+        .map_err(|error| format!("無法寫入輸出資料夾 {}：{error}", path.display()))?;
+    drop(file);
+    fs::remove_file(probe).map_err(|error| format!("無法清理輸出資料夾檢查檔：{error}"))?;
+    Ok(())
+}
+
+type PreparedJob = (
+    CompressionJob,
+    CancellationToken,
+    CompressionOptions,
+    VideoOptions,
+    Option<PathBuf>,
+);
+
+fn prepare_batch(
+    manager: &JobManager,
+    output_directory: Option<&Path>,
+    options: &CompressionOptions,
+    overrides: &HashMap<String, CompressionOptions>,
+    video_options: &VideoOptions,
+    video_overrides: &HashMap<String, VideoOptions>,
+) -> Result<(Vec<PreparedJob>, Vec<CompressionJob>), String> {
+    validate_output_directory(output_directory)?;
+    let mut state = manager
+        .0
+        .lock()
+        .map_err(|_| "無法存取任務清單".to_string())?;
     let queued = state
         .jobs
         .values()
         .filter(|job| job.status == JobStatus::Queued)
         .cloned()
         .collect::<Vec<_>>();
+    let mut updates = Vec::with_capacity(queued.len());
     let batch = queued
         .into_iter()
         .map(|mut job| {
@@ -444,20 +477,49 @@ pub fn start_jobs(
             job.status = JobStatus::Analyzing;
             job.progress = 0;
             state.jobs.insert(job.id.clone(), job.clone());
-            emit_update(&app, &job);
-            let job_options = options_for_job(&job.id, &options, &overrides);
+            updates.push(job.clone());
+            let job_options = options_for_job(&job.id, options, overrides);
             let job_video_options = video_overrides
                 .get(&job.id)
-                .unwrap_or(&video_options)
+                .unwrap_or(video_options)
                 .clone();
-            (job, token, job_options, job_video_options)
+            (
+                job,
+                token,
+                job_options,
+                job_video_options,
+                output_directory.map(Path::to_path_buf),
+            )
         })
-        .collect::<Vec<_>>();
-    drop(state);
+        .collect();
+    Ok((batch, updates))
+}
 
+#[tauri::command]
+pub fn start_jobs(
+    app: AppHandle,
+    manager: State<'_, JobManager>,
+    options: CompressionOptions,
+    overrides: HashMap<String, CompressionOptions>,
+    video_options: VideoOptions,
+    video_overrides: HashMap<String, VideoOptions>,
+    output_directory: Option<String>,
+) -> Result<(), String> {
+    let output_directory = output_directory.map(PathBuf::from);
+    let (batch, updates) = prepare_batch(
+        manager.inner(),
+        output_directory.as_deref(),
+        &options,
+        &overrides,
+        &video_options,
+        &video_overrides,
+    )?;
+    for job in &updates {
+        emit_update(&app, job);
+    }
     let app_for_batch = app.clone();
     std::thread::spawn(move || {
-        for (mut running, token, job_options, video_options) in batch {
+        for (mut running, token, job_options, video_options, output_directory) in batch {
             if token.is_cancelled() {
                 running.status = JobStatus::Cancelled;
                 running.progress = 0;
@@ -469,10 +531,11 @@ pub fn start_jobs(
             update_job(&app_for_batch, &running);
             let validation_job = running.clone();
             let result = if running.media_type == MediaType::Video {
-                compress_video(
+                compress_video_to(
                     &running,
                     &video_options,
                     &video_helper_path(&app_for_batch),
+                    output_directory.as_deref(),
                     &token,
                     |progress| {
                         let mut updated = running.clone();
@@ -487,12 +550,18 @@ pub fn start_jobs(
                     },
                 )
             } else {
-                compress_image(&running, &job_options, &token, || {
-                    let mut validating = validation_job.clone();
-                    validating.status = JobStatus::Validating;
-                    validating.progress = progress_for_status(validating.status);
-                    update_job(&app_for_batch, &validating);
-                })
+                compress_image_to(
+                    &running,
+                    &job_options,
+                    output_directory.as_deref(),
+                    &token,
+                    || {
+                        let mut validating = validation_job.clone();
+                        validating.status = JobStatus::Validating;
+                        validating.progress = progress_for_status(validating.status);
+                        update_job(&app_for_batch, &validating);
+                    },
+                )
                 .map_err(|error| error.to_string())
             };
             match result {
@@ -524,6 +593,7 @@ pub fn start_jobs(
             }
         }
     });
+    Ok(())
 }
 
 fn options_for_job(
@@ -1094,5 +1164,80 @@ mod tests {
             (other.id.clone(), other.clone()),
         ]);
         assert!(collect_revealable_outputs(&jobs, &[first.id.clone(), other.id]).is_err());
+    }
+}
+
+#[tauri::command]
+pub fn load_preferences(app: AppHandle) -> Result<crate::preferences::AppPreferences, String> {
+    let path = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| format!("無法取得偏好設定資料夾：{error}"))?
+        .join("preferences.json");
+    crate::preferences::load_preferences_from(&path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn save_preferences(
+    app: AppHandle,
+    value: crate::preferences::AppPreferences,
+) -> Result<(), String> {
+    let path = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| format!("無法取得偏好設定資料夾：{error}"))?
+        .join("preferences.json");
+    crate::preferences::save_preferences_to(&path, &value).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn select_output_folder() -> Option<String> {
+    rfd::FileDialog::new()
+        .pick_folder()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod output_directory_tests {
+    use super::{JobManager, new_job, prepare_batch, validate_output_directory};
+    use crate::engine::{
+        images::{CompressionOptions, JobStatus},
+        videos::VideoOptions,
+    };
+    use std::{collections::HashMap, fs};
+    use tempfile::tempdir;
+
+    #[test]
+    fn invalid_output_folder_leaves_queued_jobs_untouched() {
+        let manager = JobManager::default();
+        let job = new_job("/tmp/queued.jpg".into(), None, None);
+        let id = job.id.clone();
+        manager.0.lock().unwrap().jobs.insert(id.clone(), job);
+        let dir = tempdir().unwrap();
+        let missing = dir.path().join("missing");
+        let result = prepare_batch(
+            &manager,
+            Some(&missing),
+            &CompressionOptions::default(),
+            &HashMap::new(),
+            &VideoOptions::default(),
+            &HashMap::new(),
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            manager.0.lock().unwrap().jobs[&id].status,
+            JobStatus::Queued
+        );
+    }
+
+    #[test]
+    fn validates_destination_without_changing_existing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let existing = dir.path().join("keep.txt");
+        fs::write(&existing, b"keep").unwrap();
+        assert!(validate_output_directory(Some(dir.path())).is_ok());
+        assert_eq!(fs::read(existing).unwrap(), b"keep");
+        assert!(validate_output_directory(Some(&dir.path().join("missing"))).is_err());
+        assert!(validate_output_directory(None).is_ok());
     }
 }

@@ -1,3 +1,5 @@
+mod preferences;
+
 mod commands;
 mod engine;
 
@@ -7,6 +9,9 @@ pub fn run() {
         .manage(commands::JobManager::default())
         .invoke_handler(tauri::generate_handler![
             commands::select_files,
+            commands::load_preferences,
+            commands::save_preferences,
+            commands::select_output_folder,
             commands::add_files,
             commands::image_preview,
             commands::video_preview_path,

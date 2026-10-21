@@ -37,3 +37,15 @@ export interface VideoOptions {
   targetBytes?: number;
   minSavingsPercent: number;
 }
+
+export type OutputLocation =
+  | { kind: "sourceFolder" }
+  | { kind: "fixedFolder"; path: string }
+  | { kind: "askEachBatch" };
+
+export interface AppPreferences {
+  schemaVersion: 1;
+  outputLocation: OutputLocation;
+  image: { mode: CompressionMode; minSavingsPercent: number };
+  video: { quality: VideoQuality; maxDimension: 0 | 720 | 1080; targetBytes: number | null; minSavingsPercent: number };
+}

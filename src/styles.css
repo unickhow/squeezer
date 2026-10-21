@@ -317,3 +317,25 @@ button { font: inherit; }
 .thumbnail-button { position: relative; }
 .thumbnail-duration { position: absolute; right: 3px; bottom: 3px; padding: 1px 4px; border-radius: 2px; background: #171714dc; color: #fff; font: 9px 'DM Mono', monospace; }
 .progress-track span.determinate { width: 0; transition: width .2s ease-out; }
+
+.preferences-trigger { margin-left: 10px; }
+.preferences-overlay { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 20px; background: #17171470; animation: preference-fade-in .16s ease-out; }
+.preferences-dialog { width: min(560px, 100%); max-height: min(720px, calc(100vh - 40px)); overflow-y: auto; padding: 24px 28px 20px; border: 1px solid #e5e2d8; border-radius: 8px; background: #fbfaf7; box-shadow: 0 24px 80px #15140f35; color: #373730; outline: none; animation: preference-rise-in .2s ease-out; }
+.preferences-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+.preferences-header h2 { margin: 5px 0 0; font-size: 23px; font-weight: 560; letter-spacing: -.03em; }
+.preference-group { padding: 14px 0; border-top: 1px solid #e9e7df; }
+.preference-group h3 { margin: 0 0 10px; color: #55544c; font-size: 13px; font-weight: 650; }
+.preference-choice,.preference-folder,.preference-field { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 14px; color: #55544c; font-size: 13px; }
+.preference-choice input { width: 15px; height: 15px; accent-color: #a85c3c; }
+.preference-folder { margin-top: 2px; }
+.preference-field select,.preference-field input { width: 160px; min-height: 32px; padding: 4px 8px; border: 1px solid #dcd9cf; border-radius: 4px; background: #fffefa; color: #3c3b34; font: inherit; font-size: 12px; }
+.preference-field input { width: 110px; text-align: right; }
+.preference-path { display: block; overflow-wrap: anywhere; margin: 2px 0 4px; color: #85847b; font-size: 11px; }
+.preferences-footer,.preferences-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid #e9e7df; color: #76756c; font-size: 11px; }
+.preferences-footer span { display: flex; align-items: center; gap: 5px; }
+.preferences-error { padding: 14px; border-radius: 5px; background: #f5e9e1; color: #79432e; font-size: 13px; line-height: 1.5; }
+.preferences-actions { justify-content: flex-start; border: 0; }
+@keyframes preference-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes preference-rise-in { from { opacity: 0; transform: translateY(7px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (max-width: 560px) { .preferences-dialog { padding: 20px; } }
+@media (prefers-reduced-motion: reduce) { .preferences-overlay,.preferences-dialog { animation: none; } }

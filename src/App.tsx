@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
-import { ArrowDownToLine, ArrowUpRight, Ban, Check, CircleAlert, Eye, FileImage, FolderOpen, Image as ImageIcon, LoaderCircle, Minus, Plus, RotateCcw, Search, ShieldCheck, Sparkles, X } from "lucide-react";
-import { addFiles, cancelJob, clearJobs, removeJob as removeQueuedJob, retryJob as retryFailedJob, revealOutputs, startJobs, subscribeJobs, videoPreviewPath } from "./lib/tauri";
+import { ArrowDownToLine, ArrowUpRight, Ban, Check, CircleAlert, Eye, FileImage, FolderOpen, Image as ImageIcon, LoaderCircle, Minus, Plus, RotateCcw, Search, Settings2, ShieldCheck, Sparkles, X } from "lucide-react";
+import { addFiles, cancelJob, clearJobs, loadPreferences, removeJob as removeQueuedJob, retryJob as retryFailedJob, revealOutputs, savePreferences, selectOutputFolder, startJobs, subscribeJobs, videoPreviewPath } from "./lib/tauri";
+import { PreferencesPanel } from "./components/PreferencesPanel";
+import { createPreferenceSaver, imageOptionsFromPreferences, runBatchWithOutputLocation, videoOptionsFromPreferences } from "./lib/preferences";
 import { calculateSavings, formatBytes } from "./lib/format";
 import { filterQueueJobs, getActionErrorMessage, getAdjacentQueueJobId, getAdmissionAnnouncement, getEffectiveOptions, getJobActionLabel, getNextCompressionMode, getOverrideAnnouncement, getPrimaryActionState, getQueueArrivalDelay, getResultActionLabel, getResultCounts, getRevealableJobIds, getStatusAnnouncement, mergeAdmissionJobs } from "./lib/interactions";
-import type { CompressionJob, CompressionMode, CompressionOptions, JobStatus, VideoOptions, VideoQuality } from "./types";
+import type { AppPreferences, CompressionJob, CompressionMode, CompressionOptions, JobStatus, VideoOptions, VideoQuality } from "./types";
 
 const modes: { id: CompressionMode; title: string; detail: string; icon: string }[] = [
   { id: "quality", title: "高畫質", detail: "保留更多細節", icon: "01" },
@@ -48,6 +50,13 @@ function App() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [options, setOptions] = useState(initialOptions);
+  const [preferences, setPreferences] = useState<AppPreferences | null>(null);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [preferencesSaving, setPreferencesSaving] = useState(false);
+  const [outputFolderError, setOutputFolderError] = useState("");
+  const preferencesSaver = useRef<ReturnType<typeof createPreferenceSaver> | null>(null);
+  const preferencesPendingCount = useRef(0);
+  const preferencesButton = useRef<HTMLButtonElement>(null);
   const [overrides, setOverrides] = useState<Record<string, CompressionOptions>>({});
   const [videoOptions, setVideoOptions] = useState<VideoOptions>(initialVideoOptions);
   const [videoOverrides, setVideoOverrides] = useState<Record<string, VideoOptions>>({});
@@ -74,6 +83,13 @@ function App() {
   const focusAfterRemove = useRef<string | null>(null);
   const lastStatuses = useRef(new Map<string, JobStatus>());
   const latestJobs = useRef(new Map<string, CompressionJob>());
+  if (!preferencesSaver.current) {
+    preferencesSaver.current = createPreferenceSaver(savePreferences, (next) => {
+      setPreferences(next);
+      setOptions(imageOptionsFromPreferences(next));
+      setVideoOptions(videoOptionsFromPreferences(next));
+    });
+  }
 
   const completed = jobs.filter((job) => ["completed", "skipped", "failed", "cancelled"].includes(job.status));
   const { bytes: savings, percent: savedPercent } = calculateSavings(jobs);
@@ -107,6 +123,27 @@ function App() {
       setNotice("");
     } catch (error) { setNotice(String(error)); }
   }, []);
+
+  useEffect(() => {
+    void loadPreferences().then((loaded) => {
+      preferencesSaver.current?.setCurrent(loaded);
+      setPreferences(loaded);
+      setOptions(imageOptionsFromPreferences(loaded));
+      setVideoOptions(videoOptionsFromPreferences(loaded));
+      setNotice("");
+    }).catch((error) => setNotice(`偏好設定載入失敗：${String(error)}`));
+  }, []);
+
+  async function updatePreferences(change: AppPreferences | ((current: AppPreferences) => AppPreferences)) {
+    setNotice("");
+    preferencesPendingCount.current += 1;
+    setPreferencesSaving(true);
+    try { await preferencesSaver.current!.save(change); }
+    finally {
+      preferencesPendingCount.current -= 1;
+      setPreferencesSaving(preferencesPendingCount.current > 0);
+    }
+  }
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -170,9 +207,21 @@ function App() {
       const queuedIds = new Set(jobs.filter((job) => job.status === "queued").map((job) => job.id));
       const queuedOverrides = Object.fromEntries(Object.entries(overrides).filter(([id]) => queuedIds.has(id)));
       const queuedVideoOverrides = Object.fromEntries(Object.entries(videoOverrides).filter(([id]) => queuedIds.has(id)));
-      await startJobs(options, queuedOverrides, videoOptions, queuedVideoOverrides);
+      if (!preferences) throw new Error("偏好設定尚未載入，請先重新載入設定。");
+      const result = await runBatchWithOutputLocation(
+        preferences.outputLocation,
+        selectOutputFolder,
+        (directory) => startJobs(options, queuedOverrides, videoOptions, queuedVideoOverrides, directory),
+      );
+      if (result.cancelled) { setAnnouncement("已取消選擇資料夾，檔案仍保留在清單中"); return; }
       setAnnouncement(`開始壓縮 ${queuedCount} 個媒體檔案`);
-    } catch (error) { setNotice(String(error)); }
+    } catch (error) {
+      setNotice(String(error));
+      if (preferences?.outputLocation.kind === "fixedFolder" && String(error).includes("輸出資料夾")) {
+        setOutputFolderError(`已設定的輸出資料夾無法使用：${preferences.outputLocation.path}。請選擇其他資料夾後再開始。`);
+        setPreferencesOpen(true);
+      }
+    }
     finally { setBusy(false); }
   }
   async function removeJob(id: string) {
@@ -269,7 +318,7 @@ function App() {
   }, [jobs]);
 
   return <main className={`app-shell ${dragging ? "is-dragging" : ""}`}>
-    <header className="topbar"><div className="brand"><span className="brand-mark"><span /><span /><span /></span><span className="brand-name">Squeezer</span></div><div className="topbar-meta"><span className="local-pill"><span className="local-dot" />本機處理</span></div></header>
+    <header className="topbar"><div className="brand"><span className="brand-mark"><span /><span /><span /></span><span className="brand-name">Squeezer</span></div><div className="topbar-meta"><span className="local-pill"><span className="local-dot" />本機處理</span><button ref={preferencesButton} className="icon-button preferences-trigger" title="偏好設定" aria-label="偏好設定" disabled={preferencesSaving} onClick={() => setPreferencesOpen(true)}><Settings2 size={17} /></button></div></header>
     <div className="workspace" id="top">
       <section className="queue-section"><div className="section-heading queue-heading"><div><span className="section-index">工作區</span><h1>媒體清單 <span className="count-badge">{jobs.length}</span></h1></div><div className="queue-actions">{allFinished && revealableIds.length > 1 && <button className="text-button" title={getResultActionLabel(revealableIds.length)} onClick={() => void reveal(revealableIds)}><FolderOpen size={16} />{getResultActionLabel(revealableIds.length)}</button>}<button ref={addButtonRef} className="text-button add-action" onClick={() => void chooseFiles()} title="加入檔案"><Plus size={17} />加入檔案</button>{jobs.length > 0 && <button className="text-button muted" onClick={() => void clearQueue()} disabled={activeCount > 0} title="清空清單">清空</button>}</div></div>
         <div className="queue-toolbar"><label className="search-box"><Search size={16} /><input aria-label="搜尋檔名或資料夾" placeholder="搜尋檔名或資料夾…" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { setQuery(""); event.currentTarget.blur(); } }} />{query && <button type="button" className="clear-search" aria-label="清除搜尋" onClick={() => setQuery("")}><X size={14} /></button>}</label><span className="local-caption"><ShieldCheck size={14} />原始檔不會被修改</span></div>
@@ -294,14 +343,15 @@ function App() {
         </aside></div>}{notice && <div className="notice" role="alert" aria-live="assertive"><CircleAlert size={15} />{notice}</div>}{acknowledgement && <div className="acknowledgement" role="status">{acknowledgement}</div>}
       </section>
       <section className="settings-section"><div className="section-heading"><div><span className="section-index">壓縮設定</span><h2>媒體壓縮</h2></div><span className="section-aside">分別套用於圖片與影片</span></div>
-        {(jobs.length === 0 || jobs.some((job) => job.mediaType === "image")) && <div className="mode-grid" role="radiogroup" aria-label="整批圖片壓縮方式">{modes.map((mode, index) => <button key={mode.id} ref={(element) => { modeRefs.current[index] = element; }} role="radio" aria-checked={options.mode === mode.id} tabIndex={options.mode === mode.id ? 0 : -1} className={`mode-card ${options.mode === mode.id ? "selected" : ""}`} onClick={() => { setOptions((value) => ({ ...value, mode: mode.id })); setAnnouncement(`整批圖片品質已設為${mode.title}`); }} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); const next = getNextCompressionMode(options.mode, event.key); const nextIndex = modes.findIndex((item) => item.id === next); setOptions((value) => ({ ...value, mode: next })); setAnnouncement(`整批圖片品質已設為${modes[nextIndex]?.title}`); modeRefs.current[nextIndex]?.focus(); } }}><div className="mode-card-top"><span className="mode-number">{mode.icon}</span><span className="radio-dot">{options.mode === mode.id && <span />}</span></div><strong>{mode.title}</strong><span className="mode-detail">{mode.detail}</span></button>)}</div>}
-        {jobs.some((job) => job.mediaType === "video") && <div className="video-settings"><div className="file-settings-heading"><b>影片壓縮</b><small>輸出 H.264 MP4</small></div><div className="video-quality-grid" role="radiogroup" aria-label="整批影片品質">{videoQualities.map((quality) => <button key={quality.id} type="button" role="radio" aria-checked={videoOptions.quality === quality.id} className={videoOptions.quality === quality.id ? "selected" : ""} onClick={() => setVideoOptions((current) => ({ ...current, quality: quality.id }))}><b>{quality.title}</b><small>{quality.detail}</small></button>)}</div><div className="video-batch-fields"><label className="inspector-field"><span>長邊解析度</span><select value={videoOptions.maxDimension} onChange={(event) => setVideoOptions((current) => ({ ...current, maxDimension: Number(event.target.value) as VideoOptions["maxDimension"] }))}><option value={0}>保留原尺寸</option><option value={1080}>最多 1080p</option><option value={720}>最多 720p</option></select></label><label className="inspector-field"><span>目標容量（MB）</span><input type="number" min="0.1" step="0.1" value={videoOptions.targetBytes ? (videoOptions.targetBytes / 1_000_000).toString() : ""} placeholder="不指定" onChange={(event) => setVideoOptions((current) => ({ ...current, targetBytes: event.target.value ? Math.round(Number(event.target.value) * 1_000_000) : undefined }))} /></label></div><small className="inherit-caption">目標容量是編碼目標，完成後會顯示實際容量；未達時不會冒稱成功。</small></div>}
+        {(jobs.length === 0 || jobs.some((job) => job.mediaType === "image")) && <div className="mode-grid" role="radiogroup" aria-label="整批圖片壓縮方式">{modes.map((mode, index) => <button key={mode.id} ref={(element) => { modeRefs.current[index] = element; }} role="radio" aria-checked={options.mode === mode.id} tabIndex={options.mode === mode.id ? 0 : -1} className={`mode-card ${options.mode === mode.id ? "selected" : ""}`} disabled={!preferences || preferencesSaving} onClick={() => { if (preferences) void updatePreferences((current) => ({ ...current, image: { ...current.image, mode: mode.id } })).catch((error) => setNotice(`偏好設定儲存失敗：${String(error)}`)); setAnnouncement(`整批圖片品質已設為${mode.title}`); }} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); const next = getNextCompressionMode(options.mode, event.key); const nextIndex = modes.findIndex((item) => item.id === next); if (preferences) void updatePreferences((current) => ({ ...current, image: { ...current.image, mode: next } })).catch((error) => setNotice(`偏好設定儲存失敗：${String(error)}`)); setAnnouncement(`整批圖片品質已設為${modes[nextIndex]?.title}`); modeRefs.current[nextIndex]?.focus(); } }}><div className="mode-card-top"><span className="mode-number">{mode.icon}</span><span className="radio-dot">{options.mode === mode.id && <span />}</span></div><strong>{mode.title}</strong><span className="mode-detail">{mode.detail}</span></button>)}</div>}
+        {jobs.some((job) => job.mediaType === "video") && <div className="video-settings"><div className="file-settings-heading"><b>影片壓縮</b><small>輸出 H.264 MP4</small></div><div className="video-quality-grid" role="radiogroup" aria-label="整批影片品質">{videoQualities.map((quality) => <button key={quality.id} type="button" role="radio" aria-checked={videoOptions.quality === quality.id} className={videoOptions.quality === quality.id ? "selected" : ""} disabled={!preferences || preferencesSaving} onClick={() => { if (preferences) void updatePreferences((current) => ({ ...current, video: { ...current.video, quality: quality.id } })).catch((error) => setNotice(`偏好設定儲存失敗：${String(error)}`)); }}><b>{quality.title}</b><small>{quality.detail}</small></button>)}</div><div className="video-batch-fields"><label className="inspector-field"><span>長邊解析度</span><select disabled={!preferences || preferencesSaving} value={videoOptions.maxDimension} onChange={(event) => { if (preferences) void updatePreferences((current) => ({ ...current, video: { ...current.video, maxDimension: Number(event.target.value) as VideoOptions["maxDimension"] } })).catch((error) => setNotice(`偏好設定儲存失敗：${String(error)}`)); }}><option value={0}>保留原尺寸</option><option value={1080}>最多 1080p</option><option value={720}>最多 720p</option></select></label><label className="inspector-field"><span>目標容量（MB）</span><input disabled={!preferences || preferencesSaving} type="number" min="0.1" step="0.1" value={videoOptions.targetBytes ? (videoOptions.targetBytes / 1_000_000).toString() : ""} placeholder="不指定" onChange={(event) => { if (!preferences) return; const bytes = event.target.value ? Math.round(Number(event.target.value) * 1_000_000) : null; if (bytes === null || bytes > 0) void updatePreferences((current) => ({ ...current, video: { ...current.video, targetBytes: bytes } })).catch((error) => setNotice(`偏好設定儲存失敗：${String(error)}`)); }} /></label></div><small className="inherit-caption">目標容量是編碼目標，完成後會顯示實際容量；未達時不會冒稱成功。</small></div>}
 
         {(jobs.length === 0 || jobs.some((job) => job.mediaType === "image")) && (        <div className="setting-note"><Sparkles size={15} /><span><b>{modes.find((mode) => mode.id === options.mode)?.title}</b> 系統會按格式自動最佳化；未達 10% 節省時會保留原檔。</span></div>)}
       </section>
     </div>
-    <footer className="bottom-bar"><div className="bottom-summary">{jobs.length > 0 ? <><span className="summary-number">{jobs.length}</span><span>{summary}<small>{allFinished ? `完成 ${resultCounts.completed} · 略過 ${resultCounts.skipped} · 失敗 ${resultCounts.failed} · 取消 ${resultCounts.cancelled}` : activeCount > 0 ? `已處理 ${completed.length} · 正在處理 ${activeCount} · 等待 ${queuedCount}` : "原始檔將保留不動"}</small></span></> : <><span className="bottom-lock"><ShieldCheck size={17} /></span><span>安全、私密、完全離線<small>不會覆寫原始檔案</small></span></>}</div><div className="bottom-result">{allFinished && savings > 0 ? <><span>總共省下</span><strong>{formatBytes(savings)}</strong><small>{savedPercent}%</small></> : allFinished ? <><span>容量變化</span><strong>未減少</strong><small>保留原始品質</small></> : <><span>可用空間</span><strong>—</strong><small>完成後計算</small></>}</div><button className={`button button-primary ${busy || activeCount > 0 ? "is-busy" : ""}`} disabled={primaryAction.disabled} onClick={() => void compressAll()} aria-live="polite">{activeCount > 0 || busy ? <LoaderCircle className="spin" size={16} /> : <ArrowDownToLine size={16} />}{primaryAction.label}<ArrowUpRight size={14} className="button-arrow" /></button></footer>
+    <footer className="bottom-bar"><div className="bottom-summary">{jobs.length > 0 ? <><span className="summary-number">{jobs.length}</span><span>{summary}<small>{allFinished ? `完成 ${resultCounts.completed} · 略過 ${resultCounts.skipped} · 失敗 ${resultCounts.failed} · 取消 ${resultCounts.cancelled}` : activeCount > 0 ? `已處理 ${completed.length} · 正在處理 ${activeCount} · 等待 ${queuedCount}` : "原始檔將保留不動"}</small></span></> : <><span className="bottom-lock"><ShieldCheck size={17} /></span><span>安全、私密、完全離線<small>不會覆寫原始檔案</small></span></>}</div><div className="bottom-result">{allFinished && savings > 0 ? <><span>總共省下</span><strong>{formatBytes(savings)}</strong><small>{savedPercent}%</small></> : allFinished ? <><span>容量變化</span><strong>未減少</strong><small>保留原始品質</small></> : <><span>可用空間</span><strong>—</strong><small>完成後計算</small></>}</div><button className={`button button-primary ${busy || activeCount > 0 ? "is-busy" : ""}`} disabled={primaryAction.disabled || !preferences} onClick={() => void compressAll()} aria-live="polite">{activeCount > 0 || busy ? <LoaderCircle className="spin" size={16} /> : <ArrowDownToLine size={16} />}{primaryAction.label}<ArrowUpRight size={14} className="button-arrow" /></button></footer>
     <div className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</div>
+    {preferencesOpen && <PreferencesPanel value={preferences} onSave={async (next) => { await updatePreferences(next); setOutputFolderError(""); }} outputFolderError={outputFolderError} onClose={() => { setPreferencesOpen(false); preferencesButton.current?.focus(); }} onReload={async () => { const loaded = await loadPreferences(); preferencesSaver.current?.setCurrent(loaded); setPreferences(loaded); setOptions(imageOptionsFromPreferences(loaded)); setVideoOptions(videoOptionsFromPreferences(loaded)); setNotice(""); }} />}
     {preview && <div className={`preview-overlay ${previewClosing ? "is-closing" : ""}`} role="presentation" onAnimationEnd={(event) => { if (event.target === event.currentTarget && previewClosing) setPreview(null); }} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreview(); }}><section ref={previewRef} tabIndex={-1} className="preview-dialog" role="dialog" aria-modal="true" aria-label={`${preview.job.fileName} 前後對照`}><header className="preview-header"><div><span className="section-index">前後對照</span><h2>{preview.job.fileName}</h2></div><button className="icon-button" title="關閉預覽" onClick={closePreview} aria-label="關閉預覽"><X size={17} /></button></header>{preview.job.mediaType === "video" ? <VideoComparison job={preview.job} before={preview.before} after={preview.after} /> : <div className="preview-grid"><figure><div className="preview-image"><img src={preview.before} alt={`${preview.job.fileName} 原始圖片`} /></div><figcaption><b>原始圖片</b><span>{preview.job.fileName} · {formatBytes(preview.job.originalBytes)}</span></figcaption></figure><figure><div className="preview-image">{preview.after ? <img src={preview.after} alt={`${preview.job.fileName} 壓縮後圖片`} /> : <div className="preview-empty">{preview.job.status === "failed" ? "這個檔案尚未產生輸出" : "完成壓縮後即可比較"}</div>}</div><figcaption><b>壓縮後</b><span>{preview.job.outputBytes !== undefined ? `${preview.job.fileName} · ${formatBytes(preview.job.outputBytes)}` : statusLabel(preview.job.status)}</span></figcaption></figure></div>}</section></div>}
   </main>;
 }
