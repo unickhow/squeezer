@@ -529,6 +529,18 @@ mod tests {
             .unwrap();
         fs::write(path, encoded.into_inner()).unwrap();
     }
+    fn make_opaque_rgba_png(path: &std::path::Path) {
+        let mut encoded = Cursor::new(Vec::new());
+        PngEncoder::new(&mut encoded)
+            .write_image(
+                &RgbaImage::from_pixel(128, 96, Rgba([40, 120, 210, 255])).into_raw(),
+                128,
+                96,
+                image::ExtendedColorType::Rgba8,
+            )
+            .unwrap();
+        fs::write(path, encoded.into_inner()).unwrap();
+    }
     fn job(path: &std::path::Path) -> CompressionJob {
         let info = super::super::analyzer::analyze_media(path).unwrap();
         CompressionJob {
@@ -576,6 +588,22 @@ mod tests {
         assert_eq!(output.file_name().unwrap(), "photo.squeezed-2.png");
         assert_eq!(fs::read(&input).unwrap(), original);
         assert_eq!(fs::read(existing).unwrap(), b"keep existing output");
+    }
+
+    #[test]
+    fn opaque_rgba_png_compression_may_drop_redundant_alpha_channel() {
+        let source_dir = tempdir().unwrap();
+        let output_dir = tempdir().unwrap();
+        let input = source_dir.path().join("opaque-rgba.png");
+        make_opaque_rgba_png(&input);
+        let result = compress_image_to(
+            &job(&input),
+            &CompressionOptions::default(),
+            Some(output_dir.path()),
+            &CancellationToken::new(),
+            || {},
+        );
+        assert!(result.is_ok(), "opaque RGBA PNG should compress: {result:?}");
     }
 
     #[test]

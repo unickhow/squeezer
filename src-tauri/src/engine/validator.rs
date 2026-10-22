@@ -31,7 +31,12 @@ pub fn validate_image(input: &Path, output: &Path) -> Result<u64, ValidationErro
     if original.extension == "png" {
         let original_image = super::analyzer::decode_bounded(input)?;
         let output_image = super::analyzer::decode_bounded(output)?;
-        if original_image.color().has_alpha() && !output_image.color().has_alpha() {
+        let source_has_transparency = original_image.color().has_alpha()
+            && original_image
+                .to_rgba8()
+                .pixels()
+                .any(|pixel| pixel[3] < 255);
+        if source_has_transparency && !output_image.color().has_alpha() {
             return Err(ValidationError::TransparencyChanged);
         }
         let (width, height) = original_image.dimensions();
