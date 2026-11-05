@@ -9,3 +9,4 @@ pub mod similarity;
 pub mod validator;
 pub mod video_analysis;
 pub mod videos;
+pub mod webp;

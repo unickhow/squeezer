@@ -141,26 +141,8 @@ where
         if fs::metadata(input)?.len() > super::analyzer::MAX_INPUT_BYTES {
             return Err(super::analyzer::AnalyzeError::ImageTooLarge.into());
         }
-        let decoded =
-            image::open(input).map_err(|error| CompressionError::Codec(error.to_string()))?;
-        let rgba = decoded.to_rgba8();
-        let quality = match options.mode {
-            CompressionMode::Quality => 90.0,
-            CompressionMode::Balanced => 82.0,
-            CompressionMode::Small => 68.0,
-        };
-        let encoded =
-            webp::Encoder::from_rgba(rgba.as_raw(), rgba.width(), rgba.height()).encode(quality);
-        if cancel.is_cancelled() {
-            return Err(CompressionError::Cancelled);
-        }
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp_path)?;
-        file.write_all(encoded.as_ref())?;
-        file.sync_all()?;
-        detail = Some(format!("q{quality:.0}"));
+        let outcome = super::webp::compress_webp(input, &temp_path, options.mode, cancel)?;
+        detail = Some(format!("q{}", outcome.quality));
     } else if job.extension.eq_ignore_ascii_case("jpg")
         || job.extension.eq_ignore_ascii_case("jpeg")
     {
