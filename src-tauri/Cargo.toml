@@ -28,6 +28,7 @@ quantette = { version = "0.6", default-features = false, features = ["image", "k
 png = "0.18"
 oxipng = { version = "9", default-features = false }
 rfd = "0.16"
+mozjpeg = "0.10"
 
 [dev-dependencies]
 tempfile = "3"

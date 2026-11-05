@@ -1,7 +1,7 @@
 mod preferences;
 
 mod commands;
-mod engine;
+pub mod engine;
 
 pub fn run() {
     jxl_oxide::integration::register_image_decoding_hook();
