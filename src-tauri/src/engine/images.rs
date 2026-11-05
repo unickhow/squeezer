@@ -224,14 +224,18 @@ fn png_palette_size(bytes: &[u8]) -> Option<usize> {
 }
 
 /// Palette sizes the adaptive search may choose from, largest first.
+/// Largest per-channel error a pixel may have, and the share of pixels allowed to exceed it.
+const COLOR_ERROR_LIMIT: u8 = 40;
+const FAR_PIXEL_SHARE: f64 = 0.004;
+
 const PALETTE_LADDER: [u16; 9] = [256, 192, 128, 96, 64, 48, 32, 24, 16];
 
 /// Perceptual-similarity target per mode (see `similarity::blend`).
 const fn png_target_score(mode: CompressionMode) -> f64 {
     match mode {
-        CompressionMode::Quality => 0.992,
-        CompressionMode::Balanced => 0.982,
-        CompressionMode::Small => 0.965,
+        CompressionMode::Quality => 0.96,
+        CompressionMode::Balanced => 0.91,
+        CompressionMode::Small => 0.89,
     }
 }
 
@@ -276,14 +280,28 @@ fn search_palette_size(
             super::similarity::window_scores(a, b, width, height, &mut scores);
         }
         let score = super::similarity::blend(scores);
+        // SSIM barely reacts to hue shifts, so a small photo inside a screenshot could turn
+        // a different colour without lowering the score. Treat the palette as too coarse when
+        // more than a sliver of pixels is far from its original colour.
+        let far = probe
+            .pixels()
+            .zip(candidate.pixels())
+            .filter(|(a, b)| {
+                a[3] > 0
+                    && (0..3).any(|c| a[c].abs_diff(b[c]) > COLOR_ERROR_LIMIT)
+            })
+            .count();
+        if far as f64 > probe.width() as f64 * probe.height() as f64 * FAR_PIXEL_SHARE {
+            return Ok(0.0);
+        }
         Ok(score)
     };
 
     let base = score_at(PALETTE_LADDER[0])?;
     let allowed_loss = match mode {
-        CompressionMode::Quality => 0.0,
-        CompressionMode::Balanced => 0.010,
-        CompressionMode::Small => 0.030,
+        CompressionMode::Quality => 0.02,
+        CompressionMode::Balanced => 0.05,
+        CompressionMode::Small => 0.07,
     };
     let target = png_target_score(mode).min(base - allowed_loss);
     let (mut low, mut high) = (1i32, PALETTE_LADDER.len() as i32 - 1);
