@@ -2,9 +2,6 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    thread,
-    time::Duration,
 };
 
 use tokio_util::sync::CancellationToken;
@@ -68,6 +65,8 @@ pub struct CompressionResult {
     pub output_path: Option<PathBuf>,
     pub output_bytes: Option<u64>,
     pub skip_reason: Option<String>,
+    /// Short encoder summary for the UI, e.g. `q78` or `256 色`.
+    pub detail: Option<String>,
 }
 
 #[cfg(test)]
@@ -102,6 +101,7 @@ where
     let final_path = output_path_for(input, output_dir)?;
     let temp_path = temporary_path(&final_path, &job.id);
     let _temp_guard = TempOutput(temp_path.clone());
+    let detail: Option<String>;
 
     if job.extension.eq_ignore_ascii_case("png") {
         if fs::metadata(input)?.len() > super::analyzer::MAX_INPUT_BYTES {
@@ -118,8 +118,13 @@ where
             CompressionMode::Balanced => 4,
             CompressionMode::Small => 6,
         };
-        let indexed = quantize_png(&source)
-            .map_err(|error| CompressionError::PngQuantize(error.to_string()))?;
+        let indexed = quantize_png(&source, options.mode, cancel).map_err(|error| {
+            if cancel.is_cancelled() {
+                CompressionError::Cancelled
+            } else {
+                CompressionError::PngQuantize(error.to_string())
+            }
+        })?;
         let optimized =
             oxipng::optimize_from_memory(&indexed, &oxipng::Options::from_preset(preset))?;
         if cancel.is_cancelled() {
@@ -131,6 +136,7 @@ where
             .open(&temp_path)?;
         file.write_all(&optimized)?;
         file.sync_all()?;
+        detail = png_palette_size(&optimized).map(|colors| format!("{colors} 色"));
     } else if job.extension.eq_ignore_ascii_case("webp") {
         if fs::metadata(input)?.len() > super::analyzer::MAX_INPUT_BYTES {
             return Err(super::analyzer::AnalyzeError::ImageTooLarge.into());
@@ -154,15 +160,18 @@ where
             .open(&temp_path)?;
         file.write_all(encoded.as_ref())?;
         file.sync_all()?;
+        detail = Some(format!("q{quality:.0}"));
     } else if job.extension.eq_ignore_ascii_case("jpg")
         || job.extension.eq_ignore_ascii_case("jpeg")
     {
-        let quality = match options.mode {
-            CompressionMode::Quality => "90",
-            CompressionMode::Balanced => "82",
-            CompressionMode::Small => "68",
-        };
-        run_sips(input, &temp_path, quality, cancel)?;
+        let outcome = super::jpeg::compress_jpeg(
+            input,
+            &temp_path,
+            options.mode,
+            options.preserve_metadata,
+            cancel,
+        )?;
+        detail = Some(format!("q{}", outcome.quality));
     } else {
         return Err(CompressionError::Codec(format!(
             "{} 格式的壓縮器尚未就緒",
@@ -190,6 +199,7 @@ where
             status: JobStatus::Skipped,
             output_path: None,
             output_bytes: None,
+            detail: None,
             skip_reason: Some(format!(
                 "節省未達設定門檻（{}%）。",
                 options.min_savings_percent
@@ -203,114 +213,334 @@ where
         output_path: Some(committed_path.clone()),
         output_bytes: Some(fs::metadata(committed_path)?.len()),
         skip_reason: None,
+        detail,
     })
 }
 
-fn quantize_png(source: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+/// Number of palette entries in an indexed PNG, if it is one.
+fn png_palette_size(bytes: &[u8]) -> Option<usize> {
+    let reader = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().ok()?;
+    reader.info().palette.as_ref().map(|palette| palette.len() / 3)
+}
+
+/// Palette sizes the adaptive search may choose from, largest first.
+const PALETTE_LADDER: [u16; 9] = [256, 192, 128, 96, 64, 48, 32, 24, 16];
+
+/// Perceptual-similarity target per mode (see `similarity::blend`).
+const fn png_target_score(mode: CompressionMode) -> f64 {
+    match mode {
+        CompressionMode::Quality => 0.992,
+        CompressionMode::Balanced => 0.982,
+        CompressionMode::Small => 0.965,
+    }
+}
+
+type IndexedPixels = (Vec<[u8; 4]>, Vec<u8>);
+
+fn quantize_png(
+    source: &[u8],
+    mode: CompressionMode,
+    cancel: &CancellationToken,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let image = image::load_from_memory_with_format(source, image::ImageFormat::Png)?.to_rgba8();
-    if image.pixels().all(|pixel| pixel[3] == 255) {
-        return quantize_opaque_png(&image);
-    }
-    let mut histogram = [0u64; 2048];
-    for pixel in image.pixels() {
-        histogram[palette_bin(pixel.0)] += 1;
-    }
-    let mut boxes = vec![
-        (0usize..2048)
-            .filter(|index| histogram[*index] > 0)
-            .collect::<Vec<_>>(),
-    ];
-    while boxes.len() < 256 {
-        let candidate = boxes
-            .iter()
-            .enumerate()
-            .filter(|(_, values)| values.len() > 1)
-            .max_by_key(|(_, values)| values.iter().map(|index| histogram[*index]).sum::<u64>())
-            .map(|(index, _)| index);
-        let Some(candidate) = candidate else { break };
-        let mut values = boxes.remove(candidate);
-        let channel = (0..4)
-            .max_by_key(|channel| {
-                let (low, high) = values
-                    .iter()
-                    .map(|index| bin_channels(*index)[*channel])
-                    .fold((u8::MAX, 0), |(lo, hi), value| {
-                        (lo.min(value), hi.max(value))
-                    });
-                high - low
-            })
-            .unwrap();
-        values.sort_by_key(|index| bin_channels(*index)[channel]);
-        let total: u64 = values.iter().map(|index| histogram[*index]).sum();
-        let mut accumulated = 0;
-        let split = values
-            .iter()
-            .position(|index| {
-                accumulated += histogram[*index];
-                accumulated >= total.div_ceil(2)
-            })
-            .unwrap_or(values.len() / 2)
-            .clamp(1, values.len() - 1);
-        let right = values.split_off(split);
-        boxes.push(values);
-        boxes.push(right);
-    }
-    let palette: Vec<[u8; 4]> = boxes
-        .iter()
-        .map(|values| {
-            let mut sums = [0u64; 4];
-            let mut total = 0u64;
-            for index in values {
-                let count = histogram[*index];
-                let channels = bin_channels(*index);
-                total += count;
-                for channel in 0..4 {
-                    sums[channel] += u64::from(channels[channel]) * count;
-                }
-            }
-            std::array::from_fn(|channel| (sums[channel] / total) as u8)
-        })
-        .collect();
-    let indices = map_to_palette(&image, &palette, true);
+    let opaque = image.pixels().all(|pixel| pixel[3] == 255);
+    let probe = probe_image(&image);
+    let colors = if probe.width() < 32 || probe.height() < 32 {
+        PALETTE_LADDER[0]
+    } else {
+        search_palette_size(&probe, opaque, mode, cancel)?
+    };
+    let (palette, indices) = quantize_with(&image, opaque, colors)?;
     encode_indexed_png(image.width(), image.height(), &palette, &indices)
 }
 
-fn quantize_opaque_png(image: &image::RgbaImage) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+/// Binary-searches the smallest palette whose dithered result stays within the mode's allowed
+/// loss, measured on a subsampled copy so large images stay fast. The allowed loss is relative
+/// to the best a 256-colour palette can do for this image (photographs cannot reach a fixed
+/// score with 256 colours), and capped by an absolute target for graphics that quantize cleanly.
+fn search_palette_size(
+    probe: &image::RgbaImage,
+    opaque: bool,
+    mode: CompressionMode,
+    cancel: &CancellationToken,
+) -> Result<u16, Box<dyn std::error::Error>> {
+    let (reference, width, height) = similarity_planes(probe, opaque);
+    let score_at = |colors: u16| -> Result<f64, Box<dyn std::error::Error>> {
+        let (palette, indices) = quantize_with(probe, opaque, colors)?;
+        let candidate = image::RgbaImage::from_fn(probe.width(), probe.height(), |x, y| {
+            image::Rgba(palette[usize::from(indices[(y * probe.width() + x) as usize])])
+        });
+        let (planes, _, _) = similarity_planes(&candidate, opaque);
+        let mut scores = Vec::new();
+        for (a, b) in reference.iter().zip(&planes) {
+            super::similarity::window_scores(a, b, width, height, &mut scores);
+        }
+        let score = super::similarity::blend(scores);
+        Ok(score)
+    };
+
+    let base = score_at(PALETTE_LADDER[0])?;
+    let allowed_loss = match mode {
+        CompressionMode::Quality => 0.0,
+        CompressionMode::Balanced => 0.010,
+        CompressionMode::Small => 0.030,
+    };
+    let target = png_target_score(mode).min(base - allowed_loss);
+    let (mut low, mut high) = (1i32, PALETTE_LADDER.len() as i32 - 1);
+    let mut best = 0usize;
+    while low <= high {
+        if cancel.is_cancelled() {
+            return Err("cancelled".into());
+        }
+        let mid = (low + high) / 2;
+        if score_at(PALETTE_LADDER[mid as usize])? >= target {
+            best = mid as usize;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    Ok(PALETTE_LADDER[best])
+}
+
+/// Every n-th pixel in both directions so the probe has about 1.2 megapixels at most.
+fn probe_image(image: &image::RgbaImage) -> image::RgbaImage {
+    let pixels = f64::from(image.width()) * f64::from(image.height());
+    let step = (pixels / 1_200_000.0).sqrt().ceil().max(1.0) as u32;
+    if step == 1 {
+        return image.clone();
+    }
+    image::RgbaImage::from_fn(image.width() / step, image.height() / step, |x, y| {
+        *image.get_pixel(x * step, y * step)
+    })
+}
+
+/// 2×2 box-averaged channel planes (premultiplied RGB, plus alpha when present). Averaging
+/// first keeps dithering noise from being scored as damage.
+fn similarity_planes(image: &image::RgbaImage, opaque: bool) -> (Vec<Vec<u8>>, usize, usize) {
+    let (width, height) = ((image.width() / 2) as usize, (image.height() / 2) as usize);
+    let channels = if opaque { 3 } else { 4 };
+    let mut planes = vec![vec![0u8; width * height]; channels];
+    for y in 0..height {
+        for x in 0..width {
+            let mut sums = [0u32; 4];
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                let pixel = image.get_pixel((x * 2 + dx) as u32, (y * 2 + dy) as u32).0;
+                let alpha = u32::from(pixel[3]);
+                for channel in 0..3 {
+                    sums[channel] += if opaque {
+                        u32::from(pixel[channel])
+                    } else {
+                        u32::from(pixel[channel]) * alpha / 255
+                    };
+                }
+                sums[3] += alpha;
+            }
+            for channel in 0..channels {
+                planes[channel][y * width + x] = (sums[channel] / 4) as u8;
+            }
+        }
+    }
+    (planes, width, height)
+}
+
+fn quantize_with(
+    image: &image::RgbaImage,
+    opaque: bool,
+    colors: u16,
+) -> Result<IndexedPixels, Box<dyn std::error::Error>> {
+    if opaque {
+        quantize_opaque_png(image, colors)
+    } else {
+        Ok(quantize_alpha_png(image, colors))
+    }
+}
+
+/// Colours are handled premultiplied by alpha so invisible pixels never cost palette entries.
+type Premultiplied = [f32; 4];
+
+fn premultiply(pixel: [u8; 4]) -> Premultiplied {
+    let alpha = f32::from(pixel[3]);
+    let scale = alpha / 255.0;
+    [
+        f32::from(pixel[0]) * scale,
+        f32::from(pixel[1]) * scale,
+        f32::from(pixel[2]) * scale,
+        alpha,
+    ]
+}
+
+fn unpremultiply(color: Premultiplied) -> [u8; 4] {
+    let alpha = color[3].clamp(0.0, 255.0);
+    if alpha < 0.5 {
+        return [0, 0, 0, 0];
+    }
+    let scale = 255.0 / alpha;
+    [
+        (color[0] * scale).round().clamp(0.0, 255.0) as u8,
+        (color[1] * scale).round().clamp(0.0, 255.0) as u8,
+        (color[2] * scale).round().clamp(0.0, 255.0) as u8,
+        alpha.round() as u8,
+    ]
+}
+
+fn premultiplied_distance(a: Premultiplied, b: Premultiplied) -> f32 {
+    let red = a[0] - b[0];
+    let green = a[1] - b[1];
+    let blue = a[2] - b[2];
+    let alpha = a[3] - b[3];
+    0.299 * red * red + 0.587 * green * green + 0.114 * blue * blue + 0.8 * alpha * alpha
+}
+
+fn nearest(palette: &[Premultiplied], color: Premultiplied) -> usize {
+    let mut best = (0usize, f32::MAX);
+    for (index, candidate) in palette.iter().enumerate() {
+        let distance = premultiplied_distance(color, *candidate);
+        if distance < best.1 {
+            best = (index, distance);
+        }
+    }
+    best.0
+}
+
+/// Median-cut on the exact colour histogram (6-6-6-4 bits, averaged inside each bin), followed by
+/// a few weighted k-means passes, then error-diffused mapping.
+fn quantize_alpha_png(image: &image::RgbaImage, colors: u16) -> IndexedPixels {
     use std::collections::HashMap;
 
-    use quantette::{ImageBuf, Pipeline, QuantizeMethod};
+    let mut bins: HashMap<u32, ([f64; 4], f64)> = HashMap::new();
+    for pixel in image.pixels() {
+        let key = (u32::from(pixel[0] >> 2) << 16)
+            | (u32::from(pixel[1] >> 2) << 10)
+            | (u32::from(pixel[2] >> 2) << 4)
+            | u32::from(pixel[3] >> 4);
+        let color = premultiply(pixel.0);
+        let entry = bins.entry(key).or_insert(([0.0; 4], 0.0));
+        for channel in 0..4 {
+            entry.0[channel] += f64::from(color[channel]);
+        }
+        entry.1 += 1.0;
+    }
+    let entries: Vec<(Premultiplied, f32)> = bins
+        .values()
+        .map(|(sums, count)| {
+            (
+                std::array::from_fn(|channel| (sums[channel] / count) as f32),
+                *count as f32,
+            )
+        })
+        .collect();
+
+    let weighted_mean = |members: &[usize]| -> Premultiplied {
+        let mut sums = [0.0f64; 4];
+        let mut total = 0.0f64;
+        for index in members {
+            let (color, weight) = entries[*index];
+            total += f64::from(weight);
+            for channel in 0..4 {
+                sums[channel] += f64::from(color[channel]) * f64::from(weight);
+            }
+        }
+        std::array::from_fn(|channel| (sums[channel] / total.max(1.0)) as f32)
+    };
+
+    let mut boxes = vec![(0..entries.len()).collect::<Vec<_>>()];
+    while boxes.len() < usize::from(colors) {
+        let candidate = boxes
+            .iter()
+            .enumerate()
+            .filter(|(_, members)| members.len() > 1)
+            .max_by(|(_, a), (_, b)| {
+                box_spread(&entries, a).total_cmp(&box_spread(&entries, b))
+            })
+            .map(|(index, _)| index);
+        let Some(candidate) = candidate else { break };
+        let mut members = boxes.swap_remove(candidate);
+        let channel = (0..4)
+            .max_by(|a, b| {
+                channel_range(&entries, &members, *a)
+                    .total_cmp(&channel_range(&entries, &members, *b))
+            })
+            .unwrap_or(0);
+        members.sort_by(|a, b| entries[*a].0[channel].total_cmp(&entries[*b].0[channel]));
+        let total: f32 = members.iter().map(|index| entries[*index].1).sum();
+        let mut accumulated = 0.0;
+        let split = members
+            .iter()
+            .position(|index| {
+                accumulated += entries[*index].1;
+                accumulated >= total / 2.0
+            })
+            .unwrap_or(members.len() / 2)
+            .clamp(1, members.len() - 1);
+        let right = members.split_off(split);
+        boxes.push(members);
+        boxes.push(right);
+    }
+    let mut palette: Vec<Premultiplied> = boxes.iter().map(|members| weighted_mean(members)).collect();
+
+    let passes = if entries.len() * palette.len() <= 60_000_000 { 4 } else { 1 };
+    for _ in 0..passes {
+        let mut groups = vec![Vec::new(); palette.len()];
+        for (index, (color, _)) in entries.iter().enumerate() {
+            groups[nearest(&palette, *color)].push(index);
+        }
+        for (slot, members) in groups.iter().enumerate() {
+            if !members.is_empty() {
+                palette[slot] = weighted_mean(members);
+            }
+        }
+    }
+
+    let indices = map_premultiplied(image, &palette, ALPHA_DITHER_STRENGTH);
+    (palette.into_iter().map(unpremultiply).collect(), indices)
+}
+
+/// Slightly under full Floyd–Steinberg strength: avoids speckle on soft gradients and shadows.
+const ALPHA_DITHER_STRENGTH: f32 = 0.75;
+
+fn channel_range(entries: &[(Premultiplied, f32)], members: &[usize], channel: usize) -> f32 {
+    let (low, high) = members
+        .iter()
+        .map(|index| entries[*index].0[channel])
+        .fold((f32::MAX, f32::MIN), |(lo, hi), value| (lo.min(value), hi.max(value)));
+    let weight: f32 = [0.299, 0.587, 0.114, 0.8][channel];
+    (high - low) * weight.sqrt()
+}
+
+fn box_spread(entries: &[(Premultiplied, f32)], members: &[usize]) -> f32 {
+    let total: f32 = members.iter().map(|index| entries[*index].1).sum();
+    let range = (0..4)
+        .map(|channel| channel_range(entries, members, channel))
+        .fold(0.0, f32::max);
+    total.sqrt() * range
+}
+
+fn quantize_opaque_png(
+    image: &image::RgbaImage,
+    colors: u16,
+) -> Result<IndexedPixels, Box<dyn std::error::Error>> {
+    use quantette::{ImageBuf, Pipeline, QuantizeMethod, dither::FloydSteinberg};
 
     let rgb = image::RgbImage::from_fn(image.width(), image.height(), |x, y| {
         let pixel = image.get_pixel(x, y);
         image::Rgb([pixel[0], pixel[1], pixel[2]])
     });
     let input = ImageBuf::try_from(rgb)?;
-    let quantized = Pipeline::new()
-        .palette_size(256u16.try_into()?)
+    let indexed = Pipeline::new()
+        .palette_size(colors.try_into()?)
         .quantize_method(QuantizeMethod::kmeans())
+        .ditherer(FloydSteinberg::new())
         .input_image(input.as_ref())
-        .output_srgb8_image();
-
-    let mut palette_indices = HashMap::new();
-    let mut colors = Vec::new();
-    let indices = quantized
-        .as_slice()
-        .iter()
-        .map(|pixel| {
-            let color = [pixel.red, pixel.green, pixel.blue];
-            *palette_indices.entry(color).or_insert_with(|| {
-                let index = colors.len() as u8;
-                colors.push(color);
-                index
-            })
-        })
-        .collect::<Vec<_>>();
-    let palette = colors
-        .iter()
-        .map(|color| [color[0], color[1], color[2], 255])
-        .collect::<Vec<_>>();
-
-    encode_indexed_png(image.width(), image.height(), &palette, &indices)
+        .output_srgb8_indexed_image();
+    let (palette, indices) = indexed.into_parts();
+    Ok((
+        palette
+            .iter()
+            .map(|color| [color.red, color.green, color.blue, 255])
+            .collect(),
+        indices,
+    ))
 }
 
 fn encode_indexed_png(
@@ -336,7 +566,18 @@ fn encode_indexed_png(
     Ok(output)
 }
 
+#[cfg(test)]
 fn map_to_palette(image: &image::RgbaImage, palette: &[[u8; 4]], dither: bool) -> Vec<u8> {
+    let palette: Vec<Premultiplied> = palette.iter().map(|color| premultiply(*color)).collect();
+    map_premultiplied(image, &palette, if dither { 1.0 } else { 0.0 })
+}
+
+/// Nearest-colour mapping with Floyd–Steinberg error diffusion scaled by `strength` (0 = none).
+fn map_premultiplied(
+    image: &image::RgbaImage,
+    palette: &[Premultiplied],
+    strength: f32,
+) -> Vec<u8> {
     let width = image.width() as usize;
     let height = image.height() as usize;
     let mut indices = Vec::with_capacity(width * height);
@@ -345,29 +586,21 @@ fn map_to_palette(image: &image::RgbaImage, palette: &[[u8; 4]], dither: bool) -
 
     for y in 0..height {
         for x in 0..width {
-            let pixel = image.get_pixel(x as u32, y as u32).0;
-            let adjusted = std::array::from_fn(|channel| {
-                (f32::from(pixel[channel]) + current_errors[x + 1][channel]).clamp(0.0, 255.0)
+            let pixel = premultiply(image.get_pixel(x as u32, y as u32).0);
+            let adjusted: Premultiplied = std::array::from_fn(|channel| {
+                (pixel[channel] + current_errors[x + 1][channel]).clamp(0.0, 255.0)
             });
-            let selected = palette
-                .iter()
-                .enumerate()
-                .min_by(|(_, a), (_, b)| {
-                    palette_distance(adjusted, **a).total_cmp(&palette_distance(adjusted, **b))
-                })
-                .map(|(index, _)| index)
-                .unwrap_or(0);
+            let selected = nearest(palette, adjusted);
             indices.push(selected as u8);
 
-            if dither {
+            if strength > 0.0 {
                 let chosen = palette[selected];
-                let error: [f32; 4] =
-                    std::array::from_fn(|channel| adjusted[channel] - f32::from(chosen[channel]));
                 for channel in 0..4 {
-                    current_errors[x + 2][channel] += error[channel] * (7.0 / 16.0);
-                    next_errors[x][channel] += error[channel] * (3.0 / 16.0);
-                    next_errors[x + 1][channel] += error[channel] * (5.0 / 16.0);
-                    next_errors[x + 2][channel] += error[channel] * (1.0 / 16.0);
+                    let error = (adjusted[channel] - chosen[channel]) * strength;
+                    current_errors[x + 2][channel] += error * (7.0 / 16.0);
+                    next_errors[x][channel] += error * (3.0 / 16.0);
+                    next_errors[x + 1][channel] += error * (5.0 / 16.0);
+                    next_errors[x + 2][channel] += error * (1.0 / 16.0);
                 }
             }
         }
@@ -375,14 +608,6 @@ fn map_to_palette(image: &image::RgbaImage, palette: &[[u8; 4]], dither: bool) -
         next_errors.fill([0.0; 4]);
     }
     indices
-}
-
-fn palette_distance(pixel: [f32; 4], color: [u8; 4]) -> f32 {
-    let red = pixel[0] - f32::from(color[0]);
-    let green = pixel[1] - f32::from(color[1]);
-    let blue = pixel[2] - f32::from(color[2]);
-    let alpha = pixel[3] - f32::from(color[3]);
-    0.299 * red * red + 0.587 * green * green + 0.114 * blue * blue + 0.8 * alpha * alpha
 }
 
 fn is_animated_png(source: &[u8]) -> bool {
@@ -416,66 +641,10 @@ fn is_animated_png(source: &[u8]) -> bool {
     false
 }
 
-fn palette_bin([red, green, blue, alpha]: [u8; 4]) -> usize {
-    usize::from(red >> 5) * 256
-        + usize::from(green >> 5) * 32
-        + usize::from(blue >> 5) * 4
-        + usize::from(alpha >> 6)
-}
-
-fn bin_channels(index: usize) -> [u8; 4] {
-    [
-        (((index >> 8) & 7) * 255 / 7) as u8,
-        (((index >> 5) & 7) * 255 / 7) as u8,
-        (((index >> 2) & 7) * 255 / 7) as u8,
-        ((index & 3) * 255 / 3) as u8,
-    ]
-}
-
 fn temporary_path(output: &Path, job_id: &str) -> PathBuf {
     let stem = output.file_stem().unwrap_or_default().to_string_lossy();
     let extension = output.extension().unwrap_or_default().to_string_lossy();
     output.with_file_name(format!(".{stem}.{job_id}.tmp.{extension}"))
-}
-
-fn run_sips(
-    input: &Path,
-    output: &Path,
-    quality: &str,
-    cancel: &CancellationToken,
-) -> Result<(), CompressionError> {
-    let mut child = Command::new("/usr/bin/sips")
-        .args(["-s", "format", "jpeg", "-s", "formatOptions", quality, "-o"])
-        .arg(output)
-        .arg(input)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| {
-            CompressionError::Jpeg(format!("無法啟動 macOS ImageIO（sips）：{error}"))
-        })?;
-    loop {
-        if cancel.is_cancelled() {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(CompressionError::Cancelled);
-        }
-        if let Some(status) = child.try_wait()? {
-            if status.success() {
-                return Ok(());
-            }
-            let stderr = child
-                .wait_with_output()
-                .map(|output| String::from_utf8_lossy(&output.stderr).trim().to_owned())
-                .unwrap_or_default();
-            return Err(CompressionError::Jpeg(if stderr.is_empty() {
-                "sips 無法編碼此圖片".into()
-            } else {
-                stderr
-            }));
-        }
-        thread::sleep(Duration::from_millis(40));
-    }
 }
 
 fn commit_without_overwrite(
@@ -562,6 +731,7 @@ mod tests {
             output_bytes: None,
             error: None,
             skip_reason: None,
+            detail: None,
         }
     }
 
@@ -714,7 +884,9 @@ mod tests {
                 255,
             ]);
         }
-        let encoded = super::quantize_opaque_png(&source).unwrap();
+        let (palette, indices) = super::quantize_opaque_png(&source, 256).unwrap();
+        let encoded =
+            super::encode_indexed_png(128, 64, &palette, &indices).unwrap();
         let optimized = image::load_from_memory_with_format(&encoded, image::ImageFormat::Png)
             .unwrap()
             .to_rgb8();
@@ -737,6 +909,45 @@ mod tests {
             "mean error was {mean_absolute_error}"
         );
         assert_eq!(reader.info().color_type, png::ColorType::Indexed);
+    }
+
+    fn gradient_with_noise(alpha: bool) -> RgbaImage {
+        RgbaImage::from_fn(192, 192, |x, y| {
+            let noise = (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663)) % 9;
+            Rgba([
+                (x as u32 * 255 / 191 + noise).min(255) as u8,
+                (y as u32 * 255 / 191 + noise).min(255) as u8,
+                ((x + y) as u32 * 255 / 382).min(255) as u8,
+                if alpha { 80 + (x as u32 * 175 / 191) as u8 } else { 255 },
+            ])
+        })
+    }
+
+    #[test]
+    fn png_modes_choose_progressively_smaller_palettes() {
+        for alpha in [false, true] {
+            let source = gradient_with_noise(alpha);
+            let mut sizes = Vec::new();
+            for mode in [
+                CompressionMode::Quality,
+                CompressionMode::Balanced,
+                CompressionMode::Small,
+            ] {
+                let mut encoded = Cursor::new(Vec::new());
+                PngEncoder::new(&mut encoded)
+                    .write_image(source.as_raw(), 192, 192, image::ExtendedColorType::Rgba8)
+                    .unwrap();
+                let indexed =
+                    super::quantize_png(&encoded.into_inner(), mode, &CancellationToken::new())
+                        .unwrap();
+                let reader = png::Decoder::new(Cursor::new(&indexed)).read_info().unwrap();
+                sizes.push(reader.info().palette.as_ref().unwrap().len() / 3);
+            }
+            assert!(
+                sizes[0] >= sizes[1] && sizes[1] >= sizes[2] && sizes[0] > sizes[2],
+                "alpha={alpha} palette sizes {sizes:?}"
+            );
+        }
     }
 
     #[test]

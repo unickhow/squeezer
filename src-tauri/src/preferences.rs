@@ -57,7 +57,7 @@ impl AppPreferences {
             schema_version: SCHEMA_VERSION,
             output_location: OutputLocation::SourceFolder,
             image: ImagePreferences {
-                mode: CompressionMode::Quality,
+                mode: CompressionMode::Balanced,
                 min_savings_percent: 10,
             },
             video: VideoPreferences {
@@ -147,7 +147,7 @@ mod tests {
     fn defaults_match_recommended_values() {
         let value = AppPreferences::defaults();
         assert_eq!(value.output_location, OutputLocation::SourceFolder);
-        assert_eq!(value.image.mode, CompressionMode::Quality);
+        assert_eq!(value.image.mode, CompressionMode::Balanced);
         assert_eq!(value.image.min_savings_percent, 10);
         assert_eq!(value.video.quality, VideoQuality::Balanced);
         assert_eq!(value.video.max_dimension, 0);

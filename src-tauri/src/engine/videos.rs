@@ -103,12 +103,12 @@ where
     let output_bytes = fs::metadata(&temp).map_err(|error| error.to_string())?.len();
     let savings_percent = job.original_bytes.saturating_sub(output_bytes).saturating_mul(100) / job.original_bytes.max(1);
     if output_bytes >= job.original_bytes || savings_percent < u64::from(options.min_savings_percent) {
-        return Ok(CompressionResult { status: JobStatus::Skipped, output_path: None, output_bytes: None, skip_reason: Some(format!("影片節省未達 {}% 門檻；未保留輸出檔。", options.min_savings_percent)) });
+        return Ok(CompressionResult { status: JobStatus::Skipped, output_path: None, output_bytes: None, detail: None, skip_reason: Some(format!("影片節省未達 {}% 門檻；未保留輸出檔。", options.min_savings_percent)) });
     }
     let committed = commit_without_overwrite(&temp, &final_path)?;
     let actual = fs::metadata(&committed).map_err(|error| error.to_string())?.len();
     let target_note = options.target_bytes.filter(|target| actual > *target).map(|target| format!("目標 {} bytes，實際 {} bytes；此素材無法達到目標。", target, actual));
-    Ok(CompressionResult { status: JobStatus::Completed, output_path: Some(committed), output_bytes: Some(actual), skip_reason: target_note })
+    Ok(CompressionResult { status: JobStatus::Completed, output_path: Some(committed), output_bytes: Some(actual), detail: None, skip_reason: target_note })
 }
 
 fn run_helper<F>(helper: &Path, input: &Path, output: &Path, bitrate: usize, max_dimension: u32, cancel: &CancellationToken, on_progress: &mut F) -> Result<(), String>
@@ -205,6 +205,7 @@ mod tests {
             output_bytes: None,
             error: None,
             skip_reason: None,
+            detail: None,
         };
         let result = compress_video_to(
             &job,
@@ -238,7 +239,7 @@ mod tests {
             id: "cancel-test".into(), input_path: input.to_string_lossy().into(), output_path: None, thumbnail: None,
             file_name: "clip.mov".into(), extension: "mov".into(), media_type: MediaType::Video,
             width: 1920, height: 1080, duration_ms: Some(12_000), codec: Some("avc1".into()), audio_codec: None,
-            status: JobStatus::Queued, progress: 0, original_bytes: 1_000_000, output_bytes: None, error: None, skip_reason: None,
+            status: JobStatus::Queued, progress: 0, original_bytes: 1_000_000, output_bytes: None, error: None, skip_reason: None, detail: None,
         };
         let cancellation = CancellationToken::new();
         let cancel_after_start = cancellation.clone();

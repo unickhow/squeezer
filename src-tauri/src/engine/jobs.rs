@@ -29,4 +29,7 @@ pub struct CompressionJob {
     pub output_bytes: Option<u64>,
     pub error: Option<String>,
     pub skip_reason: Option<String>,
+    /// Short encoder summary shown next to the result, e.g. `q78` or `256 色`.
+    #[serde(default)]
+    pub detail: Option<String>,
 }

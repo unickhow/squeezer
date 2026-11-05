@@ -573,6 +573,7 @@ pub fn start_jobs(
                         .map(|path| path.to_string_lossy().into_owned());
                     running.output_bytes = result.output_bytes;
                     running.skip_reason = result.skip_reason;
+                    running.detail = result.detail;
                     if running.media_type == MediaType::Video {
                         if let Some(path) = &running.output_path {
                             let _ = app_for_batch.asset_protocol_scope().allow_file(path);
@@ -617,6 +618,7 @@ fn retry_failed_job(job: &mut CompressionJob) -> Result<(), String> {
     job.height = 0;
     job.thumbnail = None;
     job.skip_reason = None;
+    job.detail = None;
     Ok(())
 }
 
@@ -772,6 +774,7 @@ fn new_job(input_path: String, info: Option<MediaInfo>, error: Option<String>) -
         output_bytes: None,
         error,
         skip_reason: None,
+        detail: None,
     }
 }
 
