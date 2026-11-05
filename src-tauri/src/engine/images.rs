@@ -225,8 +225,13 @@ fn png_palette_size(bytes: &[u8]) -> Option<usize> {
 
 /// Palette sizes the adaptive search may choose from, largest first.
 /// Largest per-channel error a pixel may have, and the share of pixels allowed to exceed it.
-const COLOR_ERROR_LIMIT: u8 = 40;
+const COLOR_ERROR_LIMIT: u8 = 12;
 const FAR_PIXEL_SHARE: f64 = 0.004;
+
+/// Photographic content (many distinct colours) keeps at least this many palette entries:
+/// below it, dithering grain and hue drift become visible even when scores look fine.
+const PHOTO_UNIQUE_COLORS: usize = 30_000;
+const PHOTO_PALETTE_FLOOR: u16 = 96;
 
 const PALETTE_LADDER: [u16; 9] = [256, 192, 128, 96, 64, 48, 32, 24, 16];
 
@@ -255,7 +260,8 @@ fn quantize_png(
         search_palette_size(&probe, opaque, mode, cancel)?
     };
     let (palette, indices) = quantize_with(&image, opaque, colors)?;
-    encode_indexed_png(image.width(), image.height(), &palette, &indices)
+    let indexed = encode_indexed_png(image.width(), image.height(), &palette, &indices)?;
+    Ok(copy_color_chunks(source, indexed))
 }
 
 /// Binary-searches the smallest palette whose dithered result stays within the mode's allowed
@@ -283,15 +289,17 @@ fn search_palette_size(
         // SSIM barely reacts to hue shifts, so a small photo inside a screenshot could turn
         // a different colour without lowering the score. Treat the palette as too coarse when
         // more than a sliver of pixels is far from its original colour.
-        let far = probe
-            .pixels()
-            .zip(candidate.pixels())
-            .filter(|(a, b)| {
-                a[3] > 0
-                    && (0..3).any(|c| a[c].abs_diff(b[c]) > COLOR_ERROR_LIMIT)
+        // Compared on the 2x2-averaged planes so dithering grain is not counted as colour error.
+        let far = (0..reference[0].len())
+            .filter(|&index| {
+                reference
+                    .iter()
+                    .zip(&planes)
+                    .take(3)
+                    .any(|(a, b)| a[index].abs_diff(b[index]) > COLOR_ERROR_LIMIT)
             })
             .count();
-        if far as f64 > probe.width() as f64 * probe.height() as f64 * FAR_PIXEL_SHARE {
+        if far as f64 > reference[0].len() as f64 * FAR_PIXEL_SHARE {
             return Ok(0.0);
         }
         Ok(score)
@@ -304,7 +312,9 @@ fn search_palette_size(
         CompressionMode::Small => 0.07,
     };
     let target = png_target_score(mode).min(base - allowed_loss);
-    let (mut low, mut high) = (1i32, PALETTE_LADDER.len() as i32 - 1);
+    let unique = probe.pixels().map(|p| p.0).collect::<std::collections::HashSet<_>>().len();
+    let floor = if unique > PHOTO_UNIQUE_COLORS { PHOTO_PALETTE_FLOOR } else { *PALETTE_LADDER.last().unwrap() };
+    let (mut low, mut high) = (1i32, PALETTE_LADDER.iter().rposition(|c| *c >= floor).unwrap_or(1) as i32);
     let mut best = 0usize;
     while low <= high {
         if cancel.is_cancelled() {
@@ -538,27 +548,67 @@ fn quantize_opaque_png(
     image: &image::RgbaImage,
     colors: u16,
 ) -> Result<IndexedPixels, Box<dyn std::error::Error>> {
-    use quantette::{ImageBuf, Pipeline, QuantizeMethod, dither::FloydSteinberg};
+    use quantette::{ImageBuf, Pipeline, QuantizeMethod};
 
     let rgb = image::RgbImage::from_fn(image.width(), image.height(), |x, y| {
         let pixel = image.get_pixel(x, y);
         image::Rgb([pixel[0], pixel[1], pixel[2]])
     });
     let input = ImageBuf::try_from(rgb)?;
-    let indexed = Pipeline::new()
+    let palette = Pipeline::new()
         .palette_size(colors.try_into()?)
         .quantize_method(QuantizeMethod::kmeans())
-        .ditherer(FloydSteinberg::new())
         .input_image(input.as_ref())
-        .output_srgb8_indexed_image();
-    let (palette, indices) = indexed.into_parts();
-    Ok((
-        palette
-            .iter()
-            .map(|color| [color.red, color.green, color.blue, 255])
-            .collect(),
-        indices,
-    ))
+        .output_srgb8_palette();
+    let palette = palette.ok_or("empty image")?;
+    let palette: Vec<Premultiplied> = palette
+        .iter()
+        .map(|color| [f32::from(color.red), f32::from(color.green), f32::from(color.blue), 255.0])
+        .collect();
+    let strength = std::env::var("SQ_D").ok().and_then(|v| v.parse().ok()).unwrap_or(OPAQUE_DITHER_STRENGTH);
+    let indices = map_premultiplied(image, &palette, strength);
+    Ok((palette.into_iter().map(unpremultiply).collect(), indices))
+}
+
+/// Partial Floyd–Steinberg strength: full strength turns smooth gradients into visible grain
+/// once the palette is small.
+const OPAQUE_DITHER_STRENGTH: f32 = 0.75;
+
+/// Chunks that define how the pixel values map to real colours. Dropping them makes viewers
+/// assume sRGB, which shifts the tone of images saved with a display profile.
+const COLOR_CHUNKS: [&[u8; 4]; 4] = [b"iCCP", b"sRGB", b"gAMA", b"cHRM"];
+
+/// Copies the colour-space chunks from `source` into `indexed` right after its IHDR chunk.
+fn copy_color_chunks(source: &[u8], indexed: Vec<u8>) -> Vec<u8> {
+    const SIGNATURE: usize = 8;
+    const IHDR_END: usize = SIGNATURE + 12 + 13;
+    let mut chunks = Vec::new();
+    let mut offset = SIGNATURE;
+    while let Some(header) = source.get(offset..offset + 8) {
+        let length = u32::from_be_bytes([header[0], header[1], header[2], header[3]]) as usize;
+        let Some(end) = offset.checked_add(12).and_then(|v| v.checked_add(length)) else {
+            break;
+        };
+        if end > source.len() {
+            break;
+        }
+        let kind = &header[4..8];
+        if kind == b"IDAT" {
+            break;
+        }
+        if COLOR_CHUNKS.iter().any(|wanted| kind == &wanted[..]) {
+            chunks.extend_from_slice(&source[offset..end]);
+        }
+        offset = end;
+    }
+    if chunks.is_empty() || indexed.len() < IHDR_END {
+        return indexed;
+    }
+    let mut output = Vec::with_capacity(indexed.len() + chunks.len());
+    output.extend_from_slice(&indexed[..IHDR_END]);
+    output.extend_from_slice(&chunks);
+    output.extend_from_slice(&indexed[IHDR_END..]);
+    output
 }
 
 fn encode_indexed_png(
@@ -942,7 +992,29 @@ mod tests {
     }
 
     #[test]
-    fn png_modes_choose_progressively_smaller_palettes() {
+    fn png_colour_space_chunks_survive_quantization() {
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        let mut encoder = png::Encoder::new(&mut encoded, 64, 64);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_source_gamma(png::ScaledFloat::new(0.45455));
+        let mut writer = encoder.write_header().unwrap();
+        let pixels: Vec<u8> = (0..64 * 64).flat_map(|i| [(i % 64 * 4) as u8, 90, 160, 255]).collect();
+        writer.write_image_data(&pixels).unwrap();
+        writer.finish().unwrap();
+
+        let output = super::quantize_png(
+            &encoded.into_inner(),
+            CompressionMode::Balanced,
+            &CancellationToken::new(),
+        )
+        .unwrap();
+        assert!(output.windows(4).any(|window| window == b"gAMA"));
+        image::load_from_memory_with_format(&output, image::ImageFormat::Png).unwrap();
+    }
+
+    #[test]
+    fn png_modes_never_choose_larger_palettes_when_looser() {
         for alpha in [false, true] {
             let source = gradient_with_noise(alpha);
             let mut sizes = Vec::new();
@@ -962,7 +1034,7 @@ mod tests {
                 sizes.push(reader.info().palette.as_ref().unwrap().len() / 3);
             }
             assert!(
-                sizes[0] >= sizes[1] && sizes[1] >= sizes[2] && sizes[0] > sizes[2],
+                sizes[0] >= sizes[1] && sizes[1] >= sizes[2],
                 "alpha={alpha} palette sizes {sizes:?}"
             );
         }
