@@ -25,9 +25,9 @@ pub struct JpegOutcome {
 /// of windows`, so a few heavily damaged detail regions cannot hide behind large flat areas.
 const fn target_score(mode: CompressionMode) -> f64 {
     match mode {
-        CompressionMode::Quality => 0.985,
-        CompressionMode::Balanced => 0.972,
-        CompressionMode::Small => 0.950,
+        CompressionMode::Quality => 0.90,
+        CompressionMode::Balanced => 0.80,
+        CompressionMode::Small => 0.74,
     }
 }
 
