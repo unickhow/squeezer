@@ -3,7 +3,7 @@ import test from "node:test";
 import { createPreferenceSaver, defaultPreferences, imageOptionsFromPreferences, resolveBatchOutputDirectory, runBatchWithOutputLocation, videoOptionsFromPreferences } from "../src/lib/preferences.ts";
 
 test("saved defaults map to workspace image and video controls", () => {
-  assert.deepEqual(imageOptionsFromPreferences(defaultPreferences), { mode: "quality", outputFormat: "original", preserveMetadata: true, minSavingsPercent: 10 });
+  assert.deepEqual(imageOptionsFromPreferences(defaultPreferences), { mode: "balanced", outputFormat: "original", preserveMetadata: true, minSavingsPercent: 10 });
   assert.deepEqual(videoOptionsFromPreferences(defaultPreferences), { quality: "balanced", maxDimension: 0, targetBytes: undefined, minSavingsPercent: 10 });
 });
 

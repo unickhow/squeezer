@@ -339,3 +339,12 @@ button { font: inherit; }
 @keyframes preference-rise-in { from { opacity: 0; transform: translateY(7px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @media (max-width: 560px) { .preferences-dialog { padding: 20px; } }
 @media (prefers-reduced-motion: reduce) { .preferences-overlay,.preferences-dialog { animation: none; } }
+.mode-card-end { display: inline-flex; align-items: center; gap: 7px; }
+.mode-badge { padding: 2px 6px; border-radius: 2px; background: #9a4d2b; color: #fff; font-size: 9px; font-weight: 600; line-height: 1.3; }
+.mode-fit { margin-top: 7px; color: #6f6e65; font: 9px 'DM Mono', monospace; }
+.job-status .result-chip { padding: 2px 5px; border: 1px solid #d3dccf; border-radius: 2px; background: #eff3ec; color: #4d6c4a; font: 9px 'DM Mono', monospace; }
+
+.auto-summary { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; border: 1px solid #e4e3dc; border-radius: 5px; background: #fbfaf7; }
+.auto-summary strong { display: block; font-size: 13px; font-weight: 600; }
+.auto-summary span:not(.auto-dot) { display: block; margin-top: 3px; color: #6f6e65; font-size: 11px; line-height: 1.5; }
+.auto-dot { flex: none; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: #7e9b7b; box-shadow: 0 0 0 3px #e8eee4; }

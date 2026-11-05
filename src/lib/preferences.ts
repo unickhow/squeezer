@@ -3,12 +3,12 @@ import type { AppPreferences, CompressionOptions, OutputLocation, VideoOptions }
 export const defaultPreferences: AppPreferences = {
   schemaVersion: 1,
   outputLocation: { kind: "sourceFolder" },
-  image: { mode: "quality", minSavingsPercent: 10 },
+  image: { mode: "balanced", minSavingsPercent: 10 },
   video: { quality: "balanced", maxDimension: 0, targetBytes: null, minSavingsPercent: 10 },
 };
 
 export function imageOptionsFromPreferences(value: AppPreferences): CompressionOptions {
-  return { mode: value.image.mode, outputFormat: "original", preserveMetadata: true, minSavingsPercent: value.image.minSavingsPercent };
+  return { mode: "balanced", outputFormat: "original", preserveMetadata: true, minSavingsPercent: value.image.minSavingsPercent };
 }
 
 export function videoOptionsFromPreferences(value: AppPreferences): VideoOptions {
